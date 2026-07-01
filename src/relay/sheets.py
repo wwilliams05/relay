@@ -18,8 +18,18 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 
-from .models import Contact, EmailStatus, Project, Target, Why
+from .models import Contact, EmailStatus, Job, Project, Target, Why
+
+# Boolean gate columns: rendered as native Excel checkboxes (see xlsx_checkbox.py).
+# Cap column width so long free-text columns (hook, chat_notes, prd_prompt) stay
+# readable rather than sprawling.
+BOOL_COLUMNS = {
+    "want_to_message", "referral_cleared", "draft_created", "responded",
+    "interested", "pursue",
+}
+MAX_COL_WIDTH = 80
 
 
 class Tracker(Protocol):
@@ -31,6 +41,8 @@ class Tracker(Protocol):
     def update_contact(self, contact: Contact) -> None: ...
     def write_projects(self, projects: list[Project]) -> None: ...
     def read_projects(self) -> list[Project]: ...
+    def write_jobs(self, jobs: list[Job]) -> None: ...
+    def read_jobs(self) -> list[Job]: ...
 
 
 # --- Tab schemas: column header -> how to (de)serialize a model field ---------
@@ -48,12 +60,34 @@ PROJECT_COLUMNS = [
     "target_company", "for_contact", "project_idea", "skills_shown",
     "interested", "prd_prompt",
 ]
+JOB_COLUMNS = [
+    "company", "title", "location", "job_type", "source", "job_url",
+    "date_posted", "fit_score", "fit_reason", "pursue", "status",
+]
 
 # Columns a human owns in the tracker; discovery must not clobber these on re-run.
 CONTACT_HUMAN_COLUMNS = {
     "want_to_message", "referral_cleared", "draft_created",
     "messaged_date", "responded", "chat_notes", "next_step",
 }
+
+
+def _autofit(ws, headers: list[str]) -> None:
+    """Size each column to its widest cell (header or data), capped for readability."""
+    for idx, header in enumerate(headers, start=1):
+        width = len(str(header))
+        for row in range(2, ws.max_row + 1):
+            value = ws.cell(row=row, column=idx).value
+            if value is not None:
+                width = max(width, len(str(value)))
+        ws.column_dimensions[get_column_letter(idx)].width = min(width + 2, MAX_COL_WIDTH)
+
+
+def _cell_for(header: str, value: Any) -> Any:
+    """Boolean gate columns become real booleans (plain FALSE/TRUE); rest stringify."""
+    if header in BOOL_COLUMNS:
+        return _as_bool(value)
+    return _to_cell(value)
 
 
 def _to_cell(value: Any) -> Any:
@@ -156,6 +190,42 @@ def row_to_project(row: dict[str, Any]) -> Project:
     )
 
 
+def job_to_row(j: Job) -> dict[str, Any]:
+    return {
+        "company": j.company, "title": j.title, "location": _to_cell(j.location),
+        "job_type": _to_cell(j.job_type), "source": _to_cell(j.source),
+        "job_url": _to_cell(j.job_url), "date_posted": _to_cell(j.date_posted),
+        "fit_score": j.fit_score, "fit_reason": _to_cell(j.fit_reason),
+        "pursue": _to_cell(j.pursue), "status": j.status,
+    }
+
+
+def row_to_job(row: dict[str, Any]) -> Job:
+    raw_score = _cell_str(row.get("fit_score"))
+    return Job(
+        company=_cell_str(row.get("company")),
+        title=_cell_str(row.get("title")),
+        location=_cell_str(row.get("location")) or None,
+        job_type=_cell_str(row.get("job_type")) or None,
+        source=_cell_str(row.get("source")) or None,
+        job_url=_cell_str(row.get("job_url")) or None,
+        date_posted=_as_date(row.get("date_posted")),
+        fit_score=int(float(raw_score)) if raw_score else 0,
+        fit_reason=_cell_str(row.get("fit_reason")) or None,
+        pursue=_as_bool(row.get("pursue")),
+        status=_cell_str(row.get("status")) or "new",
+    )
+
+
+def job_key(j: Job | dict[str, Any]) -> str:
+    """Stable identity for a job: prefer URL, fall back to company+title."""
+    get = j.get if isinstance(j, dict) else lambda k: getattr(j, k, None)
+    url = _cell_str(get("job_url"))
+    if url:
+        return f"url::{url.lower()}"
+    return f"ct::{_cell_str(get('company')).lower()}::{_cell_str(get('title')).lower()}"
+
+
 def contact_key(c: Contact | dict[str, Any]) -> str:
     """Stable identity for a contact: prefer email, fall back to name+company."""
     get = c.get if isinstance(c, dict) else lambda k: getattr(c, k, None)
@@ -172,20 +242,37 @@ class LocalXlsxTracker:
         self.path = Path(path)
 
     # -- workbook plumbing ----------------------------------------------------
+    def _save(self, wb: Workbook) -> None:
+        """Save the workbook, then upgrade boolean cells to Excel checkboxes.
+
+        Injection is best-effort: if the workbook XML isn't shaped as expected we keep
+        the plain-boolean file rather than risk shipping one Excel wants to repair.
+        """
+        from . import config
+        from .xlsx_checkbox import CheckboxInjectionError, inject_checkboxes
+
+        wb.save(self.path)
+        if config.xlsx_checkboxes():
+            try:
+                inject_checkboxes(self.path)
+            except CheckboxInjectionError:
+                pass  # leave the plain FALSE/TRUE workbook in place
+
     def _load(self) -> Workbook:
         if self.path.exists():
             return load_workbook(self.path)
         return Workbook()  # a fresh book with a default "Sheet"
 
     def _sheet(self, wb: Workbook, title: str, headers: list[str]):
-        if title in wb.sheetnames:
-            return wb[title]
-        # Reuse the default empty sheet openpyxl created, else make a new one.
-        default = wb["Sheet"] if "Sheet" in wb.sheetnames and wb["Sheet"].max_row == 1 \
-            and wb["Sheet"].max_column == 1 and wb["Sheet"]["A1"].value is None else None
-        ws = default or wb.create_sheet(title)
-        ws.title = title
+        # Always create the tab fresh with the header as row 1. (Reusing openpyxl's
+        # default "Sheet" bumped the header to row 2 via a phantom empty row 1.)
+        ws = wb.create_sheet(title)
         ws.append(headers)
+        # Drop the stray default sheet a brand-new workbook ships with.
+        if "Sheet" in wb.sheetnames and wb["Sheet"] is not ws:
+            stray = wb["Sheet"]
+            if stray.max_row <= 1 and stray.max_column <= 1:
+                del wb["Sheet"]
         return ws
 
     def _read_rows(self, title: str, headers: list[str]) -> list[dict[str, Any]]:
@@ -215,7 +302,8 @@ class LocalXlsxTracker:
             del wb[title]
         ws = self._sheet(wb, title, headers)
         for row in rows:
-            ws.append([_to_cell(row.get(h, "")) for h in headers])
+            ws.append([_cell_for(h, row.get(h, "")) for h in headers])
+        _autofit(ws, headers)
 
     # -- Targets --------------------------------------------------------------
     def upsert_target(self, target: Target) -> None:
@@ -227,7 +315,7 @@ class LocalXlsxTracker:
         rows.append(new)
         wb = self._load()
         self._write_rows(wb, "Targets", TARGET_COLUMNS, rows)
-        wb.save(self.path)
+        self._save(wb)
 
     # -- Contacts -------------------------------------------------------------
     def write_contacts(self, contacts: list[Contact]) -> None:
@@ -243,7 +331,7 @@ class LocalXlsxTracker:
             merged[k] = row
         wb = self._load()
         self._write_rows(wb, "Contacts", CONTACT_COLUMNS, list(merged.values()))
-        wb.save(self.path)
+        self._save(wb)
 
     def read_contacts(self) -> list[Contact]:
         return [row_to_contact(r) for r in self._read_rows("Contacts", CONTACT_COLUMNS)]
@@ -256,7 +344,7 @@ class LocalXlsxTracker:
         rows.append(contact_to_row(contact))
         wb = self._load()
         self._write_rows(wb, "Contacts", CONTACT_COLUMNS, rows)
-        wb.save(self.path)
+        self._save(wb)
 
     # -- Projects -------------------------------------------------------------
     def write_projects(self, projects: list[Project]) -> None:
@@ -264,10 +352,29 @@ class LocalXlsxTracker:
         rows.extend(project_to_row(p) for p in projects)
         wb = self._load()
         self._write_rows(wb, "Projects", PROJECT_COLUMNS, rows)
-        wb.save(self.path)
+        self._save(wb)
 
     def read_projects(self) -> list[Project]:
         return [row_to_project(r) for r in self._read_rows("Projects", PROJECT_COLUMNS)]
+
+    # -- Jobs -----------------------------------------------------------------
+    def write_jobs(self, jobs: list[Job]) -> None:
+        """Upsert by job_key, preserving the human `pursue` check on existing rows."""
+        existing = {job_key(r): r for r in self._read_rows("Jobs", JOB_COLUMNS)}
+        merged: dict[str, dict[str, Any]] = dict(existing)
+        for j in jobs:
+            k = job_key(j)
+            row = job_to_row(j)
+            if k in existing:
+                row["pursue"] = existing[k].get("pursue", row["pursue"])
+                row["status"] = existing[k].get("status", row["status"])
+            merged[k] = row
+        wb = self._load()
+        self._write_rows(wb, "Jobs", JOB_COLUMNS, list(merged.values()))
+        self._save(wb)
+
+    def read_jobs(self) -> list[Job]:
+        return [row_to_job(r) for r in self._read_rows("Jobs", JOB_COLUMNS)]
 
 
 class SheetsTracker:
@@ -296,6 +403,12 @@ class SheetsTracker:
         raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
 
     def read_projects(self) -> list[Project]:
+        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+
+    def write_jobs(self, jobs: list[Job]) -> None:
+        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+
+    def read_jobs(self) -> list[Job]:
         raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
 
 

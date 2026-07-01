@@ -17,8 +17,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import config, pipeline, resume
-from .models import Contact, Profile, Target
+from . import config, flow, pipeline, resume
+from .models import Contact, Job, Profile, Target
 from .sheets import get_tracker
 
 # Windows consoles default to cp1252, which chokes on the checkbox/em-dash glyphs we
@@ -134,9 +134,82 @@ def contacts() -> None:
 
 
 @app.command()
+def discover(
+    notes: str = typer.Option("", "--notes", "-n", help="Preferences not on your resume, e.g. 'Fall 2026 Co-Op, PM or BizOps'"),
+    resume_pdf: Optional[str] = typer.Option(None, "--resume", help="Resume PDF (else uses saved profile)"),
+) -> None:
+    """N-1: scrape job boards for internships matching your resume + notes -> Jobs tab."""
+    console.print(f"[dim]Jobs mode: {config.jobs_mode()} · tracker: {config.tracker_backend()}[/]")
+    try:
+        profile = flow.build_profile(resume_pdf, notes)
+        jobs = flow.discover_jobs(profile)
+    except RuntimeError as err:
+        _die(err)
+        return
+    _print_jobs(jobs, title="Discovered jobs (fit-ranked)")
+    console.print(
+        f"\n[green]{len(jobs)} jobs written[/] to the Jobs tab. "
+        "[bold]Gate:[/] check [italic]pursue[/] on the ones you want, then run "
+        "[bold]relay find-checked[/].")
+
+
+@app.command()
+def jobs() -> None:
+    """Show the current Jobs tab."""
+    rows = get_tracker().read_jobs()
+    if not rows:
+        console.print("[yellow]No jobs yet[/] — run [bold]relay discover[/] first.")
+        return
+    _print_jobs(rows, title="Jobs tab")
+
+
+@app.command("find-checked")
+def find_checked() -> None:
+    """N2–N4 for every job you checked `pursue` on -> Contacts tab."""
+    profile = _load_profile_or_warn()
+    try:
+        contacts, companies = flow.find_people_for_checked_jobs(profile)
+    except RuntimeError as err:
+        _die(err)
+        return
+    if not contacts:
+        console.print("[yellow]No pursued jobs[/] — check [italic]pursue[/] in the Jobs tab first.")
+        return
+    _print_contacts(contacts, title=f"Contacts for {', '.join(sorted(set(companies)))}")
+    console.print(
+        f"\n[green]{len(contacts)} contacts written.[/] "
+        "[bold]Gate:[/] check [italic]want_to_message[/] before drafting.")
+
+
+@app.command()
+def ui() -> None:
+    """Launch the desktop launcher (import resume, notes, Run)."""
+    from .gui import launch
+
+    launch()
+
+
+@app.command()
 def draft() -> None:
     """N5 (M2): generate Gmail drafts for every checked (want_to_message) contact."""
     console.print("[yellow]N5 lands in M2[/] — draft generation not wired yet.")
+
+
+def _print_jobs(jobs: list[Job], title: str) -> None:
+    table = Table(title=title, show_lines=False)
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Fit", justify="right")
+    table.add_column("Company")
+    table.add_column("Title", overflow="fold")
+    table.add_column("Location")
+    table.add_column("Source")
+    table.add_column("Pursue", justify="center")
+    for i, j in enumerate(jobs, 1):
+        table.add_row(
+            str(i), str(j.fit_score), j.company, j.title, j.location or "",
+            j.source or "", "☑" if j.pursue else "☐",
+        )
+    console.print(table)
 
 
 def _print_contacts(contacts: list[Contact], title: str) -> None:

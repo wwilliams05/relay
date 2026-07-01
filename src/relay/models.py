@@ -31,6 +31,9 @@ class Profile(BaseModel):
     roles: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     anchor_framing: str = "business operations process improvement"
+    # Free-text preferences the user typed in the launcher that aren't on the resume
+    # (e.g. "Fall 2026 Co-Op, Product Management or BizOps"). Drives job discovery.
+    extra_context: str = ""
 
 
 class Target(BaseModel):
@@ -66,6 +69,29 @@ class Contact(BaseModel):
     responded: bool = False
     chat_notes: str | None = None
     next_step: str | None = None
+
+
+class Job(BaseModel):
+    """A scraped job/internship posting (N-1, job discovery). Feeds the Jobs tab.
+
+    Populated by the jobs adapter (JobSpy) and fit-ranked against the Profile before
+    the user checks which ones to pursue.
+    """
+
+    company: str
+    title: str
+    location: str | None = None
+    job_type: str | None = None  # internship, fulltime, contract, ...
+    source: str | None = None  # indeed, linkedin, glassdoor, ...
+    job_url: str | None = None
+    date_posted: date | None = None
+    fit_score: int = 0  # 0–100 heuristic match to the Profile
+    fit_reason: str | None = None  # one line: why it scored that way
+    description: str | None = None  # scraped JD text; used for fit-scoring, not persisted
+
+    # Human gate: check the jobs you want Relay to find people for.
+    pursue: bool = False
+    status: str = "new"
 
 
 class Project(BaseModel):

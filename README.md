@@ -29,40 +29,61 @@ Then open in Claude Code and run the stages as skill-commands:
 /suggest-project    # portfolio project ideas + a ready-to-build PRD prompt
 ```
 
-## Run it now (M1: N0–N4)
+## Launcher (easiest)
 
-The find/enrich/track spine runs today. With **no Apollo key** it uses built-in
-SpaceX/Starlink fixtures, so you can see the whole flow end to end; add
-`APOLLO_API_KEY` to hit the real API. The tracker is a local `relay.xlsx` — no
-Google credentials needed.
+Double-click **`Relay.pyw`** (or run `relay ui`) to open a small window:
+
+1. **Import PDF…** — pick your résumé.
+2. **Looking for:** — type what's not on the résumé, e.g. *"Fall 2026 Co-Op, Product
+   Management or BizOps"*. Press **Enter** or **① Find jobs ▶**.
+3. Relay scrapes job boards, fit-ranks the matches, and opens the spreadsheet. Tick
+   **`pursue`** on the jobs you want.
+4. Back in the window, **② Find people for checked jobs** populates the Contacts tab.
+   Tick **`want_to_message`**. (Drafting is step ③ — M2.)
+
+Everything else lives in the spreadsheet. Nothing sends on its own.
+
+## Run it from the terminal (same flow)
+
+Works with **no credentials**: job discovery falls back to sample postings and people
+discovery uses SpaceX/Starlink fixtures. Add `APOLLO_API_KEY` for real people and set
+`RELAY_JOBS_MODE=live` for real postings. The tracker is a local `relay.xlsx`.
 
 ```bash
-relay profile resume.pdf                     # N0: parse resume -> profile.json
-relay target "SpaceX" "Business Operations Co-Op"   # N1: define the target
-relay find "SpaceX" "Business Operations Co-Op"     # N2–N4: search + enrich + rank
-relay contacts                               # show the Contacts tab
+relay discover --notes "Fall 2026 Co-Op, PM or BizOps"   # N-1: scrape + fit-rank -> Jobs tab
+# ...tick `pursue` on jobs in the spreadsheet...
+relay find-checked                                       # N2–N4 for pursued jobs -> Contacts tab
+relay contacts                                           # show the Contacts tab
+
+# or drive a single company directly (skip job discovery):
+relay find "SpaceX" "Business Operations Co-Op"
 ```
 
-`relay find` writes ranked contacts (alumni + similar-role first, per PRD §5) to the
-Contacts tab with `want_to_message` **unchecked**. Re-running it refreshes discovery
-data without clobbering the boxes you've checked. Modes are set in `.env`
-(`RELAY_APOLLO_MODE`, `RELAY_TRACKER_BACKEND`).
+Contacts are ranked alumni + similar-role first (PRD §5) with `want_to_message`
+**unchecked**. Re-running never clobbers boxes you've checked. Modes live in `.env`
+(`RELAY_JOBS_MODE`, `RELAY_APOLLO_MODE`, `RELAY_TRACKER_BACKEND`).
 
 ## Layout
 
 ```
 docs/PRD.md            product spec (read this first)
 .claude/commands/      Claude Code skill-commands — the orchestration, one per stage
+Relay.pyw               double-click launcher (opens the GUI)
 src/relay/
   models.py            pydantic schema (mirrors the tracker tabs)
-  config.py            env loading + adapter modes (Apollo mode, tracker backend)
+  config.py            env loading + adapter modes (jobs, Apollo, tracker backend)
   outreach.py          the outreach voice rules, encoded once
   resume.py            resume PDF -> Profile (N0)
+  jobs.py              job-board scraping via JobSpy (live + fixtures) (N-1)
+  discover.py          derive search terms + fit-rank postings (N-1)
   apollo.py            people search + email enrichment (live httpx + fixtures)
   pipeline.py          N2–N4 spine: search -> enrich -> rank (§5)
+  flow.py              orchestration shared by the launcher + CLI
+  gui.py               tkinter launcher
   gmail.py             create drafts (never sends)
   sheets.py            tracker storage (local .xlsx default; Google Sheets swappable)
-  cli.py               deterministic helpers
+  xlsx_checkbox.py     turns boolean cells into native Excel checkboxes
+  cli.py               deterministic helpers + command surface
 ```
 
 ## Principles

@@ -36,6 +36,23 @@ def apollo_key() -> str | None:
     return _env("APOLLO_API_KEY") or None
 
 
+# --- Job discovery (JobSpy) -------------------------------------------------
+# "live"    -> scrape real job boards via JobSpy (network; may be rate-limited)
+# "fixture" -> canned internship postings so the flow runs fully offline
+# "auto"    -> try live, fall back to fixtures if scraping fails or returns nothing
+def jobs_mode() -> str:
+    return _env("RELAY_JOBS_MODE", "auto").lower()
+
+
+def jobs_location() -> str:
+    return _env("RELAY_JOBS_LOCATION", "United States")
+
+
+def jobs_results() -> int:
+    raw = _env("RELAY_JOBS_RESULTS", "20")
+    return int(raw) if raw.isdigit() else 20
+
+
 # --- Tracker ----------------------------------------------------------------
 # "xlsx"   -> local openpyxl workbook (default; zero credentials)
 # "sheets" -> Google Sheets via gspread (needs SHEETS_WORKBOOK_KEY + creds)
@@ -51,6 +68,12 @@ def workbook_path() -> Path:
 
 def sheets_workbook_key() -> str | None:
     return _env("SHEETS_WORKBOOK_KEY") or None
+
+
+# Turn boolean gate cells into native Excel checkboxes (Excel 365 / 2024+). On by
+# default; set RELAY_XLSX_CHECKBOXES=0 to keep plain TRUE/FALSE if your Excel is older.
+def xlsx_checkboxes() -> bool:
+    return _env("RELAY_XLSX_CHECKBOXES", "1").lower() not in {"0", "false", "no"}
 
 
 # --- Profile ----------------------------------------------------------------
