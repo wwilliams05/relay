@@ -29,6 +29,25 @@ Then open in Claude Code and run the stages as skill-commands:
 /suggest-project    # portfolio project ideas + a ready-to-build PRD prompt
 ```
 
+## Run it now (M1: N0–N4)
+
+The find/enrich/track spine runs today. With **no Apollo key** it uses built-in
+SpaceX/Starlink fixtures, so you can see the whole flow end to end; add
+`APOLLO_API_KEY` to hit the real API. The tracker is a local `relay.xlsx` — no
+Google credentials needed.
+
+```bash
+relay profile resume.pdf                     # N0: parse resume -> profile.json
+relay target "SpaceX" "Business Operations Co-Op"   # N1: define the target
+relay find "SpaceX" "Business Operations Co-Op"     # N2–N4: search + enrich + rank
+relay contacts                               # show the Contacts tab
+```
+
+`relay find` writes ranked contacts (alumni + similar-role first, per PRD §5) to the
+Contacts tab with `want_to_message` **unchecked**. Re-running it refreshes discovery
+data without clobbering the boxes you've checked. Modes are set in `.env`
+(`RELAY_APOLLO_MODE`, `RELAY_TRACKER_BACKEND`).
+
 ## Layout
 
 ```
@@ -36,11 +55,13 @@ docs/PRD.md            product spec (read this first)
 .claude/commands/      Claude Code skill-commands — the orchestration, one per stage
 src/relay/
   models.py            pydantic schema (mirrors the tracker tabs)
+  config.py            env loading + adapter modes (Apollo mode, tracker backend)
   outreach.py          the outreach voice rules, encoded once
-  resume.py            resume PDF -> Profile
-  apollo.py            people search + email enrichment
+  resume.py            resume PDF -> Profile (N0)
+  apollo.py            people search + email enrichment (live httpx + fixtures)
+  pipeline.py          N2–N4 spine: search -> enrich -> rank (§5)
   gmail.py             create drafts (never sends)
-  sheets.py            tracker storage (Google Sheets; local .xlsx swappable)
+  sheets.py            tracker storage (local .xlsx default; Google Sheets swappable)
   cli.py               deterministic helpers
 ```
 
