@@ -1,0 +1,31 @@
+# Relay — ATS target companies for job discovery (N-1).
+#
+# Relay queries each company's OFFICIAL applicant-tracking-system (ATS) job board
+# via its public JSON API — free, no auth, structured, and (unlike scraping Indeed/
+# LinkedIn) never rate-limited or blocked. This is the reliable discovery source that
+# complements JobSpy's broad board scraping. See src/relay/jobs.py.
+#
+# Each entry needs three fields:
+#   company  — display name written to the Jobs tab
+#   provider — one of: greenhouse | lever | ashby
+#   token    — the board slug in the ATS URL. Find it by opening the company's
+#              careers page and reading the URL:
+#                greenhouse -> boards.greenhouse.io/<token>        (or job-boards.greenhouse.io/<token>)
+#                ashby      -> jobs.ashbyhq.com/<token>
+#                lever      -> jobs.lever.co/<token>
+#
+# Only internship / co-op titles are kept (v1 is internship-focused); fit-scoring
+# against your resume + notes ranks them. Edit freely — this file, if present,
+# replaces the built-in defaults. Delete it to fall back to those defaults.
+
+targets:
+  - { company: Stripe,     provider: greenhouse, token: stripe }
+  - { company: DoorDash,   provider: greenhouse, token: doordashusa }
+  - { company: Databricks, provider: greenhouse, token: databricks }
+  - { company: Anduril,    provider: greenhouse, token: andurilindustries }
+  - { company: Coinbase,   provider: greenhouse, token: coinbase }
+  - { company: Airbnb,     provider: greenhouse, token: airbnb }
+  - { company: Notion,     provider: ashby,      token: notion }
+  - { company: Ramp,       provider: ashby,      token: Ramp }
+  - { company: OpenAI,     provider: ashby,      token: openai }
+  - { company: Palantir,   provider: lever,      token: palantir }

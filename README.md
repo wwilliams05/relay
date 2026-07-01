@@ -46,8 +46,11 @@ Everything else lives in the spreadsheet. Nothing sends on its own.
 ## Run it from the terminal (same flow)
 
 Works with **no credentials**: job discovery falls back to sample postings and people
-discovery uses SpaceX/Starlink fixtures. Add `APOLLO_API_KEY` for real people and set
-`RELAY_JOBS_MODE=live` for real postings. The tracker is a local `relay.xlsx`.
+discovery uses SpaceX/Starlink fixtures. Add `APOLLO_API_KEY` for real people. Real
+postings need no key — the default `auto` mode pulls live internships from target
+companies' official ATS APIs (Greenhouse/Lever/Ashby, listed in `targets.yml`) and
+merges in JobSpy board results, falling back to fixtures only if both come up empty.
+The tracker is a local `relay.xlsx`.
 
 ```bash
 relay discover --notes "Fall 2026 Co-Op, PM or BizOps"   # N-1: scrape + fit-rank -> Jobs tab
@@ -68,13 +71,14 @@ Contacts are ranked alumni + similar-role first (PRD §5) with `want_to_message`
 ```
 docs/PRD.md            product spec (read this first)
 .claude/commands/      Claude Code skill-commands — the orchestration, one per stage
+targets.yml            ATS target companies for job discovery (edit to add your own)
 Relay.pyw               double-click launcher (opens the GUI)
 src/relay/
   models.py            pydantic schema (mirrors the tracker tabs)
   config.py            env loading + adapter modes (jobs, Apollo, tracker backend)
   outreach.py          the outreach voice rules, encoded once
   resume.py            resume PDF -> Profile (N0)
-  jobs.py              job-board scraping via JobSpy (live + fixtures) (N-1)
+  jobs.py              job discovery: ATS APIs (targets.yml) + JobSpy + fixtures (N-1)
   discover.py          derive search terms + fit-rank postings (N-1)
   apollo.py            people search + email enrichment (live httpx + fixtures)
   pipeline.py          N2–N4 spine: search -> enrich -> rank (§5)

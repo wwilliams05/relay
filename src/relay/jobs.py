@@ -1,24 +1,35 @@
-"""Job-discovery adapter: scrape postings via JobSpy (N-1).
+"""Job-discovery adapter: postings from ATS APIs + JobSpy (N-1).
 
-Two modes, selected by `RELAY_JOBS_MODE` (see config.jobs_mode):
-- "live"    — scrape real boards (Indeed / LinkedIn / Glassdoor / ZipRecruiter /
-              Google) via JobSpy. Network-bound; boards rate-limit, so results vary.
-- "fixture" — canned internship/co-op postings so the launcher flow runs fully offline.
-- "auto"    — try live, fall back to fixtures if scraping errors or returns nothing.
+Two independent sources, selected by `RELAY_JOBS_MODE` (see config.jobs_mode):
+- ATS APIs — official job-board JSON endpoints (Greenhouse / Lever / Ashby) for a
+             curated list of target companies (targets.yml). Free, no-auth, structured,
+             and — unlike scraping — never rate-limited or blocked. Reliable discovery.
+- JobSpy   — scrape real boards (Indeed / LinkedIn / Google / ZipRecruiter). Broad
+             coverage across every company, but network-bound and often rate-limited.
 
-Every posting funnels through `_normalize` so live and fixture rows map to a Job the
-same way. Fit-scoring against the Profile happens in `relay.discover`.
+Modes: "ats" (ATS only), "live" (JobSpy only), "fixture" (canned, fully offline),
+"auto" (ATS + JobSpy merged, falling back to fixtures if both come up empty).
+
+Every posting funnels through `_normalize` so ATS, JobSpy, and fixture rows map to a
+Job the same way. Fit-scoring against the Profile happens in `relay.discover`.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import html
+import re
+from datetime import date, datetime, timezone
 from typing import Any
 
 from . import config
 from .models import Job
 
 _DEFAULT_SITES = ["indeed", "linkedin", "google", "zip_recruiter"]
+
+# Titles we keep from an ATS board (which lists *every* open role): v1 is
+# internship-focused, so we gate on this and let fit-scoring rank the rest. Word
+# boundaries matter — a bare "intern" substring would wrongly catch "Internal Audit".
+_INTERN_TITLE_RE = re.compile(r"\b(intern(?:ship)?s?|co[- ]?ops?)\b", re.IGNORECASE)
 
 
 def _to_date(value: Any) -> date | None:
@@ -28,10 +39,25 @@ def _to_date(value: Any) -> date | None:
         return value.date()
     if isinstance(value, date):
         return value
+    # Lever posts epoch-milliseconds timestamps; treat plain numbers as those.
+    if isinstance(value, (int, float)) or (isinstance(value, str) and value.isdigit()):
+        try:
+            return datetime.fromtimestamp(int(value) / 1000, tz=timezone.utc).date()
+        except (ValueError, OverflowError, OSError):
+            return None
     try:
         return date.fromisoformat(str(value)[:10])
     except ValueError:
         return None
+
+
+def _strip_html(text: Any) -> str | None:
+    """Roughly de-tag an HTML JD to plain text — enough for keyword fit-scoring."""
+    if not text:
+        return None
+    plain = re.sub(r"<[^>]+>", " ", str(text))
+    plain = html.unescape(plain)
+    return re.sub(r"\s+", " ", plain).strip() or None
 
 
 def _normalize(row: dict[str, Any]) -> Job:
@@ -68,6 +94,131 @@ def _live_scrape(terms: list[str], location: str, results_wanted: int) -> list[J
             continue
         for record in df.to_dict("records"):
             jobs.append(_normalize(record))
+    return jobs
+
+
+# --- ATS APIs (Greenhouse / Lever / Ashby) -----------------------------------
+# Curated target companies queried via their official ATS job-board endpoints.
+# Verified live (2026-07). Extend/override this list in targets.yml at the repo root;
+# each entry needs {company, provider, token} where token is the board slug in the
+# ATS URL (e.g. greenhouse.io/boards/<token>, jobs.ashbyhq.com/<token>).
+_DEFAULT_ATS_TARGETS: list[dict[str, str]] = [
+    {"company": "Stripe", "provider": "greenhouse", "token": "stripe"},
+    {"company": "DoorDash", "provider": "greenhouse", "token": "doordashusa"},
+    {"company": "Databricks", "provider": "greenhouse", "token": "databricks"},
+    {"company": "Anduril", "provider": "greenhouse", "token": "andurilindustries"},
+    {"company": "Coinbase", "provider": "greenhouse", "token": "coinbase"},
+    {"company": "Airbnb", "provider": "greenhouse", "token": "airbnb"},
+    {"company": "Notion", "provider": "ashby", "token": "notion"},
+    {"company": "Ramp", "provider": "ashby", "token": "Ramp"},
+    {"company": "OpenAI", "provider": "ashby", "token": "openai"},
+    {"company": "Palantir", "provider": "lever", "token": "palantir"},
+]
+
+_ATS_TIMEOUT = 20.0
+_ATS_HEADERS = {"User-Agent": "Relay/1 (job-discovery; +https://github.com/relay)"}
+
+
+def _load_ats_targets() -> list[dict[str, str]]:
+    """Built-in target list, replaced wholesale by targets.yml if it exists + parses."""
+    path = config.ats_targets_path()
+    if not path.exists():
+        return _DEFAULT_ATS_TARGETS
+    try:
+        import yaml  # optional dep; degrade to defaults if unavailable
+
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or []
+        targets = loaded.get("targets", []) if isinstance(loaded, dict) else loaded
+        cleaned = [
+            {"company": str(t["company"]), "provider": str(t["provider"]).lower(),
+             "token": str(t["token"])}
+            for t in targets
+            if isinstance(t, dict) and t.get("company") and t.get("provider") and t.get("token")
+        ]
+        return cleaned or _DEFAULT_ATS_TARGETS
+    except Exception:
+        return _DEFAULT_ATS_TARGETS
+
+
+def _ats_get(url: str) -> Any:
+    import httpx
+
+    with httpx.Client(timeout=_ATS_TIMEOUT, follow_redirects=True, headers=_ATS_HEADERS) as c:
+        resp = c.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _greenhouse_rows(company: str, token: str) -> list[dict[str, Any]]:
+    data = _ats_get(f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true")
+    rows = []
+    for j in data.get("jobs", []):
+        rows.append({
+            "company": company, "title": j.get("title"),
+            "location": (j.get("location") or {}).get("name"),
+            "site": "greenhouse", "job_url": j.get("absolute_url"),
+            "date_posted": j.get("updated_at") or j.get("first_published"),
+            "description": _strip_html(j.get("content")),
+        })
+    return rows
+
+
+def _lever_rows(company: str, token: str) -> list[dict[str, Any]]:
+    data = _ats_get(f"https://api.lever.co/v0/postings/{token}?mode=json")
+    rows = []
+    for j in data or []:
+        cats = j.get("categories") or {}
+        rows.append({
+            "company": company, "title": j.get("text"),
+            "location": cats.get("location"), "job_type": cats.get("commitment"),
+            "site": "lever", "job_url": j.get("hostedUrl") or j.get("applyUrl"),
+            "date_posted": j.get("createdAt"),
+            "description": j.get("descriptionPlain") or _strip_html(j.get("description")),
+        })
+    return rows
+
+
+def _ashby_rows(company: str, token: str) -> list[dict[str, Any]]:
+    data = _ats_get(f"https://api.ashbyhq.com/posting-api/job-board/{token}")
+    rows = []
+    for j in data.get("jobs", []):
+        rows.append({
+            "company": company, "title": j.get("title"),
+            "location": j.get("location"), "job_type": j.get("employmentType"),
+            "site": "ashby", "job_url": j.get("jobUrl") or j.get("applyUrl"),
+            "date_posted": j.get("publishedDate") or j.get("publishedAt"),
+            "description": j.get("descriptionPlain") or _strip_html(j.get("descriptionHtml")),
+        })
+    return rows
+
+
+_ATS_PROVIDERS = {
+    "greenhouse": _greenhouse_rows,
+    "lever": _lever_rows,
+    "ashby": _ashby_rows,
+}
+
+
+def _ats_scrape(terms: list[str], location: str, results_wanted: int) -> list[Job]:
+    """Query each target company's ATS, keep internship-titled roles, normalize to Jobs.
+
+    Best-effort per company: a bad token or a network blip on one board is swallowed so
+    the rest still return. Fit-scoring/ranking against the Profile happens downstream.
+    """
+    if not config.ats_enabled():
+        return []
+    jobs: list[Job] = []
+    for target in _load_ats_targets():
+        fetch = _ATS_PROVIDERS.get(target["provider"])
+        if fetch is None:
+            continue
+        try:
+            rows = fetch(target["company"], target["token"])
+        except Exception:
+            continue  # bad slug, board offline, rate limit — skip this company only
+        for row in rows:
+            if _INTERN_TITLE_RE.search(str(row.get("title") or "")):
+                jobs.append(_normalize(row))
     return jobs
 
 
@@ -143,10 +294,11 @@ def scrape(
     location: str | None = None,
     results_wanted: int | None = None,
 ) -> list[Job]:
-    """N-1: scrape postings for `terms`. Returns raw (unranked, un-deduped) Jobs.
+    """N-1: gather postings for `terms`. Returns raw (unranked, un-deduped) Jobs.
 
-    Honors RELAY_JOBS_MODE; in "auto" it tries live and falls back to fixtures so the
-    launcher never dead-ends on a blocked scrape.
+    Honors RELAY_JOBS_MODE; in "auto" it merges the reliable ATS APIs with JobSpy's
+    breadth and falls back to fixtures so the launcher never dead-ends on a blocked
+    scrape. Dedup + fit-ranking happen in `relay.discover`.
     """
     terms = [t for t in terms if t.strip()] or ["business operations internship"]
     location = location or config.jobs_location()
@@ -155,11 +307,14 @@ def scrape(
 
     if mode == "fixture":
         return _fixture_scrape(terms, location, results_wanted)
+    if mode == "ats":
+        return _ats_scrape(terms, location, results_wanted)
     if mode == "live":
         return _live_scrape(terms, location, results_wanted)
-    # auto: try live, fall back to fixtures
+    # auto: ATS (reliable) first, then JobSpy (breadth); fixtures only if both are empty.
+    jobs = _ats_scrape(terms, location, results_wanted)
     try:
-        jobs = _live_scrape(terms, location, results_wanted)
+        jobs += _live_scrape(terms, location, results_wanted)
     except Exception:
-        jobs = []
+        pass
     return jobs or _fixture_scrape(terms, location, results_wanted)

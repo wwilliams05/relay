@@ -36,10 +36,11 @@ def apollo_key() -> str | None:
     return _env("APOLLO_API_KEY") or None
 
 
-# --- Job discovery (JobSpy) -------------------------------------------------
+# --- Job discovery (JobSpy + ATS APIs) --------------------------------------
 # "live"    -> scrape real job boards via JobSpy (network; may be rate-limited)
+# "ats"     -> query official ATS APIs only (targets.yml; reliable, no scraping)
 # "fixture" -> canned internship postings so the flow runs fully offline
-# "auto"    -> try live, fall back to fixtures if scraping fails or returns nothing
+# "auto"    -> ATS APIs + JobSpy merged, falling back to fixtures if both come up empty
 def jobs_mode() -> str:
     return _env("RELAY_JOBS_MODE", "auto").lower()
 
@@ -51,6 +52,21 @@ def jobs_location() -> str:
 def jobs_results() -> int:
     raw = _env("RELAY_JOBS_RESULTS", "20")
     return int(raw) if raw.isdigit() else 20
+
+
+# --- ATS APIs (Greenhouse / Lever / Ashby) ----------------------------------
+# Official ATS job-board JSON endpoints for a curated list of target companies.
+# Unlike JobSpy (board scraping, rate-limited/blockable), these are free, no-auth,
+# and structured. On by default in "auto"/"ats" jobs modes; set RELAY_ATS=0 to skip.
+def ats_enabled() -> bool:
+    return _env("RELAY_ATS", "1").lower() not in {"0", "false", "no"}
+
+
+# Where the editable company list lives (overrides the built-in defaults if present).
+def ats_targets_path() -> Path:
+    raw = _env("RELAY_ATS_TARGETS", "targets.yml")
+    p = Path(raw)
+    return p if p.is_absolute() else ROOT / p
 
 
 # --- Tracker ----------------------------------------------------------------
