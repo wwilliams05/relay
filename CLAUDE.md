@@ -37,19 +37,26 @@ flow runs per pursued company. Resume tailoring is still Phase 2 and NOT in scop
   (hooks, drafts, project ideas, ranking) belongs here.
 - **Deterministic code** lives in `src/relay/`:
   - `models.py` — pydantic schema, mirrors the tracker tabs. Source of truth for shape.
-  - `config.py` — env loading + adapter modes (jobs, Apollo, tracker, fit floor).
-  - `outreach.py` — the voice rules, encoded once.
+  - `config.py` — env loading + adapter modes (jobs, Apollo, Gmail, tracker, fit floor).
+  - `outreach.py` — the voice rules, encoded once; plus `lint_draft` (the rules as
+    checks), `build_draft` (deterministic rule-checked template), and the N7 PRD prompt.
   - `resume.py` — résumé PDF → `Profile` (name/schools/major) (N0).
   - `jobs.py` — job discovery adapters: ATS APIs (Greenhouse/Lever/Ashby/Workday) +
     JobSpy + fixtures. Companies live in `targets.yml` (N-1).
-  - `discover.py` — derive search terms + transparent fit-scoring/ranking (N-1).
+  - `discover.py` — derive search terms + transparent fit-scoring/ranking + cross-city
+    duplicate collapse (N-1).
   - `apollo.py` — people search + enrichment (N2, N3).
-  - `gmail.py` — create drafts, never send (N5).
-  - `sheets.py` — tracker; `Tracker` Protocol (local xlsx default, Google Sheets stub).
-  - `flow.py` — orchestration shared by the launcher + CLI.
-  - `gui.py` + `Relay.pyw` — tkinter desktop launcher.
+  - `gmail.py` — create drafts, never send (N5). live = Gmail API via compose-only
+    OAuth; fixture = `.eml` files in `drafts/` (RELAY_GMAIL_MODE, auto-detects creds).
+  - `sheets.py` — tracker; `Tracker` Protocol. `LocalXlsxTracker` (default) and
+    `SheetsTracker` (gspread service account) share the pure `merge_*` upsert helpers.
+  - `flow.py` — orchestration shared by the launcher + CLI: discovery, find-checked,
+    `draft_outreach` (N5), `log_chat` (N6), projects/PRD prompts (N7), `status_summary`.
+  - `gui.py` + `Relay.pyw` — tkinter desktop launcher (steps ①②③).
   - `xlsx_checkbox.py` — render boolean gate cells as native Excel checkboxes.
   - `cli.py` — thin deterministic entry points.
+- **Tests** live in `tests/` — offline pytest suite (fixture modes, temp workbook).
+  `pip install -e ".[dev]"`, then `pytest -q`. Keep it green; add tests with new logic.
 
 ## Conventions
 
@@ -67,12 +74,22 @@ flow runs per pursued company. Resume tailoring is still Phase 2 and NOT in scop
 - **N-1 job discovery (done):** `jobs.py` + `discover.py` + `flow.py` + `gui.py`.
   ~50 companies in `targets.yml` across Greenhouse/Lever/Ashby/Workday, parallel fetch,
   fit-scoring weighted by typed preferences + major + recency + preferred locations,
-  duplicate collapse, clickable URLs, and a twice-daily Windows refresh task.
+  duplicate collapse (incl. cross-city), clickable URLs, twice-daily Windows refresh.
+- **M2 — drafts → Gmail (N5) (done):** `flow.draft_outreach` gated on `want_to_message`;
+  skips + flags uncleared referrals; drafts built by `outreach.build_draft` and checked
+  by `outreach.lint_draft`; surfaced as `relay draft` + GUI step ③. Fixture mode writes
+  `.eml` files to `drafts/`; live Gmail OAuth is coded but not yet run against a real
+  account.
+- **M3 — tracking + projects (N6/N7) (done):** `flow.log_chat` (`relay log`), project
+  upserts + `fill_prd_prompts` (`relay projects` / `relay prd`), plus `relay status`.
+- **Sheets backend (done):** `SheetsTracker` via gspread service account, same merge
+  semantics as xlsx through the shared `merge_*` functions. Needs real-creds dogfooding.
 - **Next:**
-  - **M2 — drafts → Gmail (N5):** `/draft-outreach` + `gmail.py` create-draft, gated on
-    `want_to_message`. Must obey `outreach.py` and the referral rule.
   - **Real people search:** `apollo.py` live mode needs `APOLLO_API_KEY` (fixtures today).
-  - **M3 — tracking + project suggester (N6/N7):** `/log-chat`, `/suggest-project`.
-  - **Google Sheets backend:** implement `SheetsTracker` (currently a NotImplemented stub).
+  - **Live-creds dogfood:** exercise Gmail OAuth (N5) and the Sheets backend against
+    real credentials; fix whatever reality disagrees with.
+  - **Hooks at scale:** `/find-people` should write individual `hook`s; `build_draft`
+    falls back to school/title facts when `hook` is empty.
+  - **Phase 2 (still not in scope):** resume tailoring / ATS keyword pass.
 - **Golden-rule reminder for any new work:** every stage stays human-gated; no LinkedIn
   scraping; drafts obey `outreach.py`; never name an uncleared referrer.
