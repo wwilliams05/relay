@@ -14,12 +14,16 @@ from .sheets import get_tracker
 
 
 def build_profile(resume_pdf: str | Path | None, notes: str) -> Profile:
-    """N0: parse the resume (if given) and attach the launcher's free-text notes."""
+    """N0: parse the resume (if given) and attach the launcher's free-text notes.
+
+    Empty notes preserve the previously saved preferences, so a no-argument run (e.g.
+    the scheduled `relay discover`) keeps using them instead of wiping extra_context."""
     if resume_pdf:
         profile = resume.parse_resume(resume_pdf)
     else:
         profile = resume.load_profile() or Profile(name="(unknown)")
-    profile.extra_context = notes.strip()
+    if notes.strip():
+        profile.extra_context = notes.strip()
     resume.save_profile(profile)
     return profile
 

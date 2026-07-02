@@ -66,6 +66,24 @@ Contacts are ranked alumni + similar-role first (PRD §5) with `want_to_message`
 **unchecked**. Re-running never clobbers boxes you've checked. Modes live in `.env`
 (`RELAY_JOBS_MODE`, `RELAY_APOLLO_MODE`, `RELAY_TRACKER_BACKEND`).
 
+## Keep the Jobs tab fresh automatically (Windows)
+
+`relay discover` with no arguments reuses your saved résumé + preferences, so a
+scheduled task can refresh the Jobs tab on its own (fresher postings score higher —
+applying early matters). Register a twice-daily (8am/6pm) run:
+
+```powershell
+$py = "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe"
+$action  = New-ScheduledTaskAction -Execute $py -Argument "-m relay.cli discover" -WorkingDirectory (Get-Location)
+$trigs   = @((New-ScheduledTaskTrigger -Daily -At 8:00AM), (New-ScheduledTaskTrigger -Daily -At 6:00PM))
+$set     = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName "RelayJobDiscovery" -Action $action -Trigger $trigs -Settings $set
+```
+
+Remove it with `Unregister-ScheduledTask -TaskName RelayJobDiscovery -Confirm:$false`.
+This refreshes the 51 ATS/Workday companies with no Claude in the loop; pulling
+Indeed/LinkedIn continuously needs the Google-Sheets + cloud-agent path (see PRD).
+
 ## Layout
 
 ```
