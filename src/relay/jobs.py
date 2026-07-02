@@ -176,7 +176,9 @@ def _greenhouse_rows(t: dict[str, str]) -> list[dict[str, Any]]:
             "company": t["company"], "title": j.get("title"),
             "location": (j.get("location") or {}).get("name"),
             "site": "greenhouse", "job_url": j.get("absolute_url"),
-            "date_posted": j.get("updated_at") or j.get("first_published"),
+            # first_published = when it was posted; updated_at is any later edit (which
+            # made long-open roles look freshly posted). Prefer the real post date.
+            "date_posted": j.get("first_published") or j.get("updated_at"),
             "description": _strip_html(j.get("content")),
         })
     return rows

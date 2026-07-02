@@ -18,9 +18,14 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from .models import Contact, EmailStatus, Job, Project, Target, Why
+
+# URL columns rendered as clickable hyperlinks in the workbook.
+URL_COLUMNS = {"job_url", "profile_url", "jd_url"}
+_HYPERLINK_FONT = Font(color="0563C1", underline="single")
 
 # Boolean gate columns: rendered as native Excel checkboxes (see xlsx_checkbox.py).
 # Cap column width so long free-text columns (hook, chat_notes, prd_prompt) stay
@@ -312,8 +317,15 @@ class LocalXlsxTracker:
         if title in wb.sheetnames:
             del wb[title]
         ws = self._sheet(wb, title, headers)
-        for row in rows:
+        url_cols = {h: headers.index(h) + 1 for h in headers if h in URL_COLUMNS}
+        for r_idx, row in enumerate(rows, start=2):  # header occupies row 1
             ws.append([_cell_for(h, row.get(h, "")) for h in headers])
+            for h, col in url_cols.items():  # make URL cells clickable
+                url = _cell_str(row.get(h, ""))
+                if url.startswith("http"):
+                    cell = ws.cell(row=r_idx, column=col)
+                    cell.hyperlink = url
+                    cell.font = _HYPERLINK_FONT
         _autofit(ws, headers)
 
     # -- Targets --------------------------------------------------------------
@@ -382,13 +394,23 @@ class LocalXlsxTracker:
                 row["status"] = existing[k].get("status", row["status"])
             merged[k] = row
 
+        from . import config
+
         def _fit(row: dict[str, Any]) -> int:
             try:
                 return int(row.get("fit_score") or 0)
             except (TypeError, ValueError):
                 return 0
 
-        ordered = sorted(merged.values(), key=_fit, reverse=True)
+        def _checked(row: dict[str, Any]) -> bool:
+            p = row.get("pursue")
+            return p is True or _cell_str(p).lower() in {"true", "1", "yes"}
+
+        # Prune below-floor rows (e.g. stale 0-scored postings from a prior run) unless
+        # you've checked pursue on them; keep the rest sorted highest fit first.
+        floor = config.jobs_min_fit()
+        kept = [r for r in merged.values() if _fit(r) >= floor or _checked(r)]
+        ordered = sorted(kept, key=_fit, reverse=True)
         wb = self._load()
         self._write_rows(wb, "Jobs", JOB_COLUMNS, ordered)
         self._save(wb)
