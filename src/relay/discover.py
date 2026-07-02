@@ -8,6 +8,8 @@ the /suggest-* skills can refine later, but the launcher never needs an LLM to r
 
 from __future__ import annotations
 
+from datetime import date
+
 from . import config, jobs
 from .models import Job, Profile
 from .sheets import job_key
@@ -28,7 +30,7 @@ _ROLE_TERMS: dict[str, str] = {
     "growth": "growth intern",
 }
 
-_INTERN_HINTS = ("intern", "co-op", "coop", "co op")
+_INTERN_HINTS = ("intern", "co-op", "coop", "co op", "summer analyst", "summer associate")
 
 # User-typed preference phrase -> the title keywords that satisfy it. Matched against
 # the job *title* (the role), not the whole JD — a JD name-drops every function, so
@@ -175,6 +177,20 @@ def score_job(job: Job, profile: Profile) -> tuple[int, str]:
         if overlap:
             score += min(6, 2 * len(overlap))
             reasons.append("skills: " + ", ".join(overlap[:3]))
+
+    # 6) Recency — you're likelier to get hired the sooner you apply, so fresher
+    #    postings rank higher and stale ones are nudged down.
+    if job.date_posted:
+        age = (date.today() - job.date_posted).days
+        if age <= 7:
+            score += 8
+            reasons.append("posted this week")
+        elif age <= 30:
+            score += 4
+            reasons.append("posted this month")
+        elif age >= 150:
+            score -= 6
+            reasons.append("stale posting")
 
     score = max(0, min(100, score))
     return score, "; ".join(reasons) or "internship match"

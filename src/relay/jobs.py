@@ -31,7 +31,9 @@ _DEFAULT_SITES = ["indeed", "linkedin", "google", "zip_recruiter"]
 # Titles we keep from an ATS board (which lists *every* open role): v1 is
 # internship-focused, so we gate on this and let fit-scoring rank the rest. Word
 # boundaries matter — a bare "intern" substring would wrongly catch "Internal Audit".
-_INTERN_TITLE_RE = re.compile(r"\b(intern(?:ship)?s?|co[- ]?ops?)\b", re.IGNORECASE)
+# "summer analyst"/"summer associate" are how banks/consulting name internships.
+_INTERN_TITLE_RE = re.compile(
+    r"\b(intern(?:ship)?s?|co[- ]?ops?|summer analyst|summer associate)\b", re.IGNORECASE)
 
 
 def _to_date(value: Any) -> date | None:
@@ -122,7 +124,12 @@ _ATS_HEADERS = {"User-Agent": "Relay/1 (job-discovery; +https://github.com/relay
 
 
 def _load_ats_targets() -> list[dict[str, str]]:
-    """Built-in target list, replaced wholesale by targets.yml if it exists + parses."""
+    """Built-in target list, replaced wholesale by targets.yml if it exists + parses.
+
+    Entries need `company` + `provider`; the remaining keys are provider-specific
+    (`token` for greenhouse/lever/ashby; `tenant`/`dc`/`site` for workday) and are
+    passed through untouched so new providers don't need loader changes.
+    """
     path = config.ats_targets_path()
     if not path.exists():
         return _DEFAULT_ATS_TARGETS
@@ -131,12 +138,12 @@ def _load_ats_targets() -> list[dict[str, str]]:
 
         loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or []
         targets = loaded.get("targets", []) if isinstance(loaded, dict) else loaded
-        cleaned = [
-            {"company": str(t["company"]), "provider": str(t["provider"]).lower(),
-             "token": str(t["token"])}
-            for t in targets
-            if isinstance(t, dict) and t.get("company") and t.get("provider") and t.get("token")
-        ]
+        cleaned = []
+        for t in targets:
+            if isinstance(t, dict) and t.get("company") and t.get("provider"):
+                entry = {k: str(v) for k, v in t.items() if v is not None}
+                entry["provider"] = entry["provider"].lower()
+                cleaned.append(entry)
         return cleaned or _DEFAULT_ATS_TARGETS
     except Exception:
         return _DEFAULT_ATS_TARGETS
@@ -151,12 +158,22 @@ def _ats_get(url: str) -> Any:
         return resp.json()
 
 
-def _greenhouse_rows(company: str, token: str) -> list[dict[str, Any]]:
-    data = _ats_get(f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true")
+def _ats_post(url: str, payload: dict[str, Any]) -> Any:
+    import httpx
+
+    headers = {**_ATS_HEADERS, "Content-Type": "application/json", "Accept": "application/json"}
+    with httpx.Client(timeout=_ATS_TIMEOUT, follow_redirects=True, headers=headers) as c:
+        resp = c.post(url, json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _greenhouse_rows(t: dict[str, str]) -> list[dict[str, Any]]:
+    data = _ats_get(f"https://boards-api.greenhouse.io/v1/boards/{t['token']}/jobs?content=true")
     rows = []
     for j in data.get("jobs", []):
         rows.append({
-            "company": company, "title": j.get("title"),
+            "company": t["company"], "title": j.get("title"),
             "location": (j.get("location") or {}).get("name"),
             "site": "greenhouse", "job_url": j.get("absolute_url"),
             "date_posted": j.get("updated_at") or j.get("first_published"),
@@ -165,13 +182,13 @@ def _greenhouse_rows(company: str, token: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _lever_rows(company: str, token: str) -> list[dict[str, Any]]:
-    data = _ats_get(f"https://api.lever.co/v0/postings/{token}?mode=json")
+def _lever_rows(t: dict[str, str]) -> list[dict[str, Any]]:
+    data = _ats_get(f"https://api.lever.co/v0/postings/{t['token']}?mode=json")
     rows = []
     for j in data or []:
         cats = j.get("categories") or {}
         rows.append({
-            "company": company, "title": j.get("text"),
+            "company": t["company"], "title": j.get("text"),
             "location": cats.get("location"), "job_type": cats.get("commitment"),
             "site": "lever", "job_url": j.get("hostedUrl") or j.get("applyUrl"),
             "date_posted": j.get("createdAt"),
@@ -180,12 +197,12 @@ def _lever_rows(company: str, token: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _ashby_rows(company: str, token: str) -> list[dict[str, Any]]:
-    data = _ats_get(f"https://api.ashbyhq.com/posting-api/job-board/{token}")
+def _ashby_rows(t: dict[str, str]) -> list[dict[str, Any]]:
+    data = _ats_get(f"https://api.ashbyhq.com/posting-api/job-board/{t['token']}")
     rows = []
     for j in data.get("jobs", []):
         rows.append({
-            "company": company, "title": j.get("title"),
+            "company": t["company"], "title": j.get("title"),
             "location": j.get("location"), "job_type": j.get("employmentType"),
             "site": "ashby", "job_url": j.get("jobUrl") or j.get("applyUrl"),
             "date_posted": j.get("publishedDate") or j.get("publishedAt"),
@@ -194,21 +211,78 @@ def _ashby_rows(company: str, token: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _workday_posted_date(text: Any) -> date | None:
+    """Workday reports 'Posted N Days Ago' / 'Posted Today', not a date — approximate
+    one so recency scoring works."""
+    if not text:
+        return None
+    s = str(text).lower()
+    if "today" in s:
+        days = 0
+    elif "yesterday" in s:
+        days = 1
+    else:
+        m = re.search(r"(\d+)\+?\s*day", s) or re.search(r"(\d+)\+?\s*week", s) or \
+            re.search(r"(\d+)\+?\s*month", s)
+        if not m:
+            return None
+        n = int(m.group(1))
+        days = n * (7 if "week" in s else 30 if "month" in s else 1)
+    from datetime import timedelta
+
+    return date.today() - timedelta(days=days)
+
+
+def _workday_rows(t: dict[str, str]) -> list[dict[str, Any]]:
+    """Workday's public 'cxs' JSON endpoint (POST). The searchText terms narrow the pull
+    server-side (banks title internships "summer analyst"); the title regex re-filters.
+    host defaults to <tenant>.<dc>.myworkdayjobs.com."""
+    tenant, site = t["tenant"], t["site"]
+    host = t.get("host") or f"{tenant}.{t.get('dc', 'wd1')}.myworkdayjobs.com"
+    url = f"https://{host}/wday/cxs/{tenant}/{site}/jobs"
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for term in ("intern", "summer analyst"):
+        for offset in (0, 20):
+            try:
+                data = _ats_post(url, {"appliedFacets": {}, "limit": 20, "offset": offset,
+                                       "searchText": term})
+            except Exception:
+                break  # this search term/page failed — move on, keep what we have
+            postings = data.get("jobPostings") or []
+            for j in postings:
+                path = j.get("externalPath") or ""
+                if path in seen:
+                    continue
+                seen.add(path)
+                rows.append({
+                    "company": t["company"], "title": j.get("title"),
+                    "location": j.get("locationsText"),
+                    "site": "workday",
+                    "job_url": f"https://{host}/{site}{path}" if path else None,
+                    "date_posted": _workday_posted_date(j.get("postedOn")),
+                })
+            if len(postings) < 20:
+                break
+    return rows
+
+
 _ATS_PROVIDERS = {
     "greenhouse": _greenhouse_rows,
     "lever": _lever_rows,
     "ashby": _ashby_rows,
+    "workday": _workday_rows,
 }
 
 
 def _fetch_target(target: dict[str, str]) -> list[dict[str, Any]]:
     """Fetch one company's postings. Best-effort: a bad slug / blocked board / blip on
     one company is swallowed so the rest still return."""
-    fetch = _ATS_PROVIDERS.get(target["provider"])
+    fetch = _ATS_PROVIDERS.get(target.get("provider", ""))
     if fetch is None:
         return []
     try:
-        return fetch(target["company"], target["token"])
+        return fetch(target)
     except Exception:
         return []
 

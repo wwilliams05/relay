@@ -71,3 +71,21 @@ targets:
 
   # --- AI ---
   - { company: OpenAI,     provider: ashby,      token: openai }
+
+  # --- Workday companies (banking / consulting / payments / enterprise) ---
+  # These use Workday's public cxs JSON API. Fields differ: tenant + dc (datacenter,
+  # e.g. wd1/wd5/wd12/wd103) + site (career-site id) instead of a single token. Find
+  # them in the careers URL: https://<tenant>.<dc>.myworkdayjobs.com/<locale>/<site>.
+  # Internships appear seasonally (banks title them "Summer Analyst"); a 0-result
+  # company here just has none open right now.
+  - { company: Accenture,      provider: workday, tenant: accenture,  dc: wd103, site: AccentureCareers }
+  - { company: Mastercard,     provider: workday, tenant: mastercard, dc: wd1,   site: CorporateCareers }
+  - { company: Capital One,    provider: workday, tenant: capitalone, dc: wd12,  site: Capital_One }
+  - { company: Morgan Stanley, provider: workday, tenant: ms,         dc: wd5,   site: External }
+  - { company: Wells Fargo,    provider: workday, tenant: wf,         dc: wd1,   site: WellsFargoJobs }
+  - { company: Citi,           provider: workday, tenant: citi,       dc: wd5,   site: "2" }
+  - { company: Gartner,        provider: workday, tenant: gartner,    dc: wd5,   site: EXT }
+  - { company: Fidelity,       provider: workday, tenant: fmr,        dc: wd1,   site: FidelityCareers }
+  - { company: PayPal,         provider: workday, tenant: paypal,     dc: wd1,   site: jobs }
+  - { company: Salesforce,     provider: workday, tenant: salesforce, dc: wd12,  site: External_Career_Site }
+  - { company: Adobe,          provider: workday, tenant: adobe,      dc: wd5,   site: external_experienced }

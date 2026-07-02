@@ -48,7 +48,7 @@ Everything else lives in the spreadsheet. Nothing sends on its own.
 Works with **no credentials**: job discovery falls back to sample postings and people
 discovery uses SpaceX/Starlink fixtures. Add `APOLLO_API_KEY` for real people. Real
 postings need no key — the default `auto` mode pulls live internships from target
-companies' official ATS APIs (Greenhouse/Lever/Ashby, listed in `targets.yml`),
+companies' official ATS APIs (Greenhouse/Lever/Ashby/Workday, listed in `targets.yml`),
 falling back to JobSpy board scraping then fixtures only if ATS comes up empty (so it
 returns fast and never stalls on a blocked scrape). The tracker is a local `relay.xlsx`.
 
