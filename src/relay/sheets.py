@@ -247,6 +247,89 @@ def project_key(p: Project | dict[str, Any]) -> str:
             f"::{_cell_str(get('project_idea')).lower()}")
 
 
+# --- backend-agnostic merge semantics ------------------------------------------
+#
+# Both trackers read whatever rows the backend holds, merge new model rows into
+# them with these pure functions, and write the result back — so the upsert rules
+# (human-owned columns survive, jobs stay sorted/pruned) live in exactly one place.
+
+def merge_target_rows(existing: list[dict[str, Any]], target: Target) -> list[dict[str, Any]]:
+    key = (target.company.lower(), target.role.lower())
+    rows = [r for r in existing
+            if (_cell_str(r.get("company")).lower(), _cell_str(r.get("role")).lower()) != key]
+    rows.append(target_to_row(target))
+    return rows
+
+
+def merge_contact_rows(existing: list[dict[str, Any]],
+                       contacts: list[Contact]) -> list[dict[str, Any]]:
+    """Upsert by contact_key, preserving human-owned columns on existing rows."""
+    by_key = {contact_key(r): r for r in existing}
+    merged: dict[str, dict[str, Any]] = dict(by_key)
+    for c in contacts:
+        k = contact_key(c)
+        row = contact_to_row(c)
+        if k in by_key:
+            for col in CONTACT_HUMAN_COLUMNS:
+                row[col] = by_key[k].get(col, row[col])
+        merged[k] = row
+    return list(merged.values())
+
+
+def replace_contact_row(existing: list[dict[str, Any]],
+                        contact: Contact) -> list[dict[str, Any]]:
+    """Overwrite a single contact's row wholesale (used by N5/N6)."""
+    k = contact_key(contact)
+    rows = [r for r in existing if contact_key(r) != k]
+    rows.append(contact_to_row(contact))
+    return rows
+
+
+def merge_project_rows(existing: list[dict[str, Any]],
+                       projects: list[Project]) -> list[dict[str, Any]]:
+    """Upsert by project_key: the human `interested` box survives, and an existing
+    prd_prompt is never clobbered by an empty one."""
+    by_key = {project_key(r): r for r in existing}
+    merged: dict[str, dict[str, Any]] = dict(by_key)
+    for p in projects:
+        k = project_key(p)
+        row = project_to_row(p)
+        if k in by_key:
+            row["interested"] = by_key[k].get("interested", row["interested"])
+            if not _cell_str(row.get("prd_prompt")):
+                row["prd_prompt"] = by_key[k].get("prd_prompt", "")
+        merged[k] = row
+    return list(merged.values())
+
+
+def merge_job_rows(existing: list[dict[str, Any]], jobs: list[Job],
+                   floor: int) -> list[dict[str, Any]]:
+    """Upsert by job_key, keep the human `pursue`/status, prune sub-floor rows that
+    aren't pursued, and order highest fit first."""
+    by_key = {job_key(r): r for r in existing}
+    merged: dict[str, dict[str, Any]] = dict(by_key)
+    for j in jobs:
+        k = job_key(j)
+        row = job_to_row(j)
+        if k in by_key:
+            row["pursue"] = by_key[k].get("pursue", row["pursue"])
+            row["status"] = by_key[k].get("status", row["status"])
+        merged[k] = row
+
+    def _fit(row: dict[str, Any]) -> int:
+        try:
+            return int(float(row.get("fit_score") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _checked(row: dict[str, Any]) -> bool:
+        p = row.get("pursue")
+        return p is True or _cell_str(p).lower() in {"true", "1", "yes"}
+
+    kept = [r for r in merged.values() if _fit(r) >= floor or _checked(r)]
+    return sorted(kept, key=_fit, reverse=True)
+
+
 class LocalXlsxTracker:
     """openpyxl-backed tracker. One workbook, one sheet per model tab."""
 
@@ -337,61 +420,32 @@ class LocalXlsxTracker:
 
     # -- Targets --------------------------------------------------------------
     def upsert_target(self, target: Target) -> None:
-        rows = self._read_rows("Targets", TARGET_COLUMNS)
-        new = target_to_row(target)
-        key = (target.company.lower(), target.role.lower())
-        rows = [r for r in rows
-                if (_cell_str(r.get("company")).lower(), _cell_str(r.get("role")).lower()) != key]
-        rows.append(new)
+        rows = merge_target_rows(self._read_rows("Targets", TARGET_COLUMNS), target)
         wb = self._load()
         self._write_rows(wb, "Targets", TARGET_COLUMNS, rows)
         self._save(wb)
 
     # -- Contacts -------------------------------------------------------------
     def write_contacts(self, contacts: list[Contact]) -> None:
-        """Upsert by contact_key, preserving human-owned columns on existing rows."""
-        existing = {contact_key(r): r for r in self._read_rows("Contacts", CONTACT_COLUMNS)}
-        merged: dict[str, dict[str, Any]] = dict(existing)
-        for c in contacts:
-            k = contact_key(c)
-            row = contact_to_row(c)
-            if k in existing:
-                for col in CONTACT_HUMAN_COLUMNS:
-                    row[col] = existing[k].get(col, row[col])
-            merged[k] = row
+        rows = merge_contact_rows(self._read_rows("Contacts", CONTACT_COLUMNS), contacts)
         wb = self._load()
-        self._write_rows(wb, "Contacts", CONTACT_COLUMNS, list(merged.values()))
+        self._write_rows(wb, "Contacts", CONTACT_COLUMNS, rows)
         self._save(wb)
 
     def read_contacts(self) -> list[Contact]:
         return [row_to_contact(r) for r in self._read_rows("Contacts", CONTACT_COLUMNS)]
 
     def update_contact(self, contact: Contact) -> None:
-        """Overwrite a single contact's row wholesale (used by N5/N6)."""
-        rows = self._read_rows("Contacts", CONTACT_COLUMNS)
-        k = contact_key(contact)
-        rows = [r for r in rows if contact_key(r) != k]
-        rows.append(contact_to_row(contact))
+        rows = replace_contact_row(self._read_rows("Contacts", CONTACT_COLUMNS), contact)
         wb = self._load()
         self._write_rows(wb, "Contacts", CONTACT_COLUMNS, rows)
         self._save(wb)
 
     # -- Projects -------------------------------------------------------------
     def write_projects(self, projects: list[Project]) -> None:
-        """Upsert by project_key: re-suggesting is safe — the human `interested` box
-        survives, and an existing prd_prompt is never clobbered by an empty one."""
-        existing = {project_key(r): r for r in self._read_rows("Projects", PROJECT_COLUMNS)}
-        merged: dict[str, dict[str, Any]] = dict(existing)
-        for p in projects:
-            k = project_key(p)
-            row = project_to_row(p)
-            if k in existing:
-                row["interested"] = existing[k].get("interested", row["interested"])
-                if not _cell_str(row.get("prd_prompt")):
-                    row["prd_prompt"] = existing[k].get("prd_prompt", "")
-            merged[k] = row
+        rows = merge_project_rows(self._read_rows("Projects", PROJECT_COLUMNS), projects)
         wb = self._load()
-        self._write_rows(wb, "Projects", PROJECT_COLUMNS, list(merged.values()))
+        self._write_rows(wb, "Projects", PROJECT_COLUMNS, rows)
         self._save(wb)
 
     def read_projects(self) -> list[Project]:
@@ -399,76 +453,130 @@ class LocalXlsxTracker:
 
     # -- Jobs -----------------------------------------------------------------
     def write_jobs(self, jobs: list[Job]) -> None:
-        """Upsert by job_key, preserving the human `pursue` check on existing rows, and
-        write highest fit score first so the best matches sit at the top of the tab."""
-        existing = {job_key(r): r for r in self._read_rows("Jobs", JOB_COLUMNS)}
-        merged: dict[str, dict[str, Any]] = dict(existing)
-        for j in jobs:
-            k = job_key(j)
-            row = job_to_row(j)
-            if k in existing:
-                row["pursue"] = existing[k].get("pursue", row["pursue"])
-                row["status"] = existing[k].get("status", row["status"])
-            merged[k] = row
-
         from . import config
 
-        def _fit(row: dict[str, Any]) -> int:
-            try:
-                return int(row.get("fit_score") or 0)
-            except (TypeError, ValueError):
-                return 0
-
-        def _checked(row: dict[str, Any]) -> bool:
-            p = row.get("pursue")
-            return p is True or _cell_str(p).lower() in {"true", "1", "yes"}
-
-        # Prune below-floor rows (e.g. stale 0-scored postings from a prior run) unless
-        # you've checked pursue on them; keep the rest sorted highest fit first.
-        floor = config.jobs_min_fit()
-        kept = [r for r in merged.values() if _fit(r) >= floor or _checked(r)]
-        ordered = sorted(kept, key=_fit, reverse=True)
+        rows = merge_job_rows(self._read_rows("Jobs", JOB_COLUMNS), jobs,
+                              floor=config.jobs_min_fit())
         wb = self._load()
-        self._write_rows(wb, "Jobs", JOB_COLUMNS, ordered)
+        self._write_rows(wb, "Jobs", JOB_COLUMNS, rows)
         self._save(wb)
 
     def read_jobs(self) -> list[Job]:
         return [row_to_job(r) for r in self._read_rows("Jobs", JOB_COLUMNS)]
 
 
-class SheetsTracker:
-    """Google Sheets implementation (drop-in for LocalXlsxTracker).
+def _gspread_client():
+    """A gspread client authed with the service account from .env. Import + auth are
+    deferred to first use so the default xlsx path never needs Google installed."""
+    from . import config
 
-    Deferred until the .xlsx flow is dogfooded (PRD §9). Left as an explicit stub so
-    flipping RELAY_TRACKER_BACKEND=sheets fails loudly rather than silently.
+    try:
+        import gspread  # already a project dep, but keep the error actionable
+    except ImportError as exc:
+        raise RuntimeError("gspread not installed — pip install gspread google-auth") from exc
+    creds = config.google_credentials_path()
+    if not creds.exists():
+        raise RuntimeError(
+            f"Google service-account json not found at {creds} — set "
+            "GOOGLE_APPLICATION_CREDENTIALS (see .env.example) and share the "
+            "spreadsheet with the service account's email."
+        )
+    return gspread.service_account(filename=str(creds))
+
+
+def _worksheet_missing_excs() -> tuple[type[Exception], ...]:
+    """gspread's WorksheetNotFound when available; KeyError covers injected fakes."""
+    try:
+        from gspread.exceptions import WorksheetNotFound
+
+        return (WorksheetNotFound, KeyError)
+    except ImportError:
+        return (KeyError,)
+
+
+class SheetsTracker:
+    """Google Sheets implementation — same merge semantics as LocalXlsxTracker,
+    via the shared merge_* functions.
+
+    `client` is injectable (anything with .open_by_key) so tests run against an
+    in-memory fake; the real path lazily builds a gspread service-account client.
+    Sheets returns every cell as a string, which the row converters already parse
+    (booleans arrive as "TRUE"/"FALSE" — same shape the xlsx path round-trips).
     """
 
-    def __init__(self, workbook_key: str) -> None:
+    def __init__(self, workbook_key: str, client: Any | None = None) -> None:
         self.workbook_key = workbook_key
+        self._client = client
 
+    # -- worksheet plumbing ----------------------------------------------------
+    def _spreadsheet(self):
+        if self._client is None:
+            self._client = _gspread_client()
+        return self._client.open_by_key(self.workbook_key)
+
+    def _worksheet(self, title: str, create: bool):
+        ss = self._spreadsheet()
+        try:
+            return ss.worksheet(title)
+        except _worksheet_missing_excs():
+            if not create:
+                return None
+            return ss.add_worksheet(title=title, rows=200, cols=26)
+
+    def _read_rows(self, title: str) -> list[dict[str, Any]]:
+        ws = self._worksheet(title, create=False)
+        if ws is None:
+            return []
+        values = ws.get_all_values()
+        if not values:
+            return []
+        headers = [_cell_str(h) for h in values[0]]
+        out: list[dict[str, Any]] = []
+        for raw in values[1:]:
+            if all(_cell_str(c) == "" for c in raw):
+                continue
+            out.append({h: (raw[i] if i < len(raw) else "") for i, h in enumerate(headers)})
+        return out
+
+    def _write_rows(self, title: str, headers: list[str],
+                    rows: list[dict[str, Any]]) -> None:
+        ws = self._worksheet(title, create=True)
+        data = [headers] + [[_cell_for(h, r.get(h, "")) for h in headers] for r in rows]
+        ws.clear()
+        ws.update(values=data, range_name="A1")
+
+    # -- Tracker protocol --------------------------------------------------------
     def upsert_target(self, target: Target) -> None:
-        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+        self._write_rows("Targets", TARGET_COLUMNS,
+                         merge_target_rows(self._read_rows("Targets"), target))
 
     def write_contacts(self, contacts: list[Contact]) -> None:
-        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+        self._write_rows("Contacts", CONTACT_COLUMNS,
+                         merge_contact_rows(self._read_rows("Contacts"), contacts))
 
     def read_contacts(self) -> list[Contact]:
-        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+        return [row_to_contact(r) for r in self._read_rows("Contacts")]
 
     def update_contact(self, contact: Contact) -> None:
-        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+        self._write_rows("Contacts", CONTACT_COLUMNS,
+                         replace_contact_row(self._read_rows("Contacts"), contact))
 
     def write_projects(self, projects: list[Project]) -> None:
-        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+        self._write_rows("Projects", PROJECT_COLUMNS,
+                         merge_project_rows(self._read_rows("Projects"), projects))
 
     def read_projects(self) -> list[Project]:
-        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+        return [row_to_project(r) for r in self._read_rows("Projects")]
 
     def write_jobs(self, jobs: list[Job]) -> None:
-        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+        from . import config
+
+        self._write_rows("Jobs", JOB_COLUMNS,
+                         merge_job_rows(self._read_rows("Jobs"), jobs,
+                                        floor=config.jobs_min_fit()))
 
     def read_jobs(self) -> list[Job]:
-        raise NotImplementedError("SheetsTracker pending; use the default xlsx backend")
+        return [row_to_job(r) for r in self._read_rows("Jobs")]
 
 
 def get_tracker() -> Tracker:

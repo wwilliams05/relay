@@ -126,6 +126,13 @@ def sheets_workbook_key() -> str | None:
     return _env("SHEETS_WORKBOOK_KEY") or None
 
 
+# Service-account json for the Sheets backend (share the sheet with its email).
+def google_credentials_path() -> Path:
+    raw = _env("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
+    p = Path(raw)
+    return p if p.is_absolute() else ROOT / p
+
+
 # Turn boolean gate cells into native Excel checkboxes (Excel 365 / 2024+). On by
 # default; set RELAY_XLSX_CHECKBOXES=0 to keep plain TRUE/FALSE if your Excel is older.
 def xlsx_checkboxes() -> bool:
