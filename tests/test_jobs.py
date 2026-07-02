@@ -7,7 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from relay import jobs
-from relay.jobs import _INTERN_TITLE_RE, _normalize, _strip_html, _to_date, _workday_posted_date
+from relay.jobs import (_INTERN_TITLE_RE, _normalize, _strip_html, _to_date,
+                        _workday_location, _workday_posted_date)
 
 
 # --- intern title gate ----------------------------------------------------------
@@ -72,6 +73,18 @@ def test_workday_posted_date(text: str, days: int) -> None:
 @pytest.mark.parametrize("bad", [None, "", "Recently posted"])
 def test_workday_posted_date_unparseable(bad) -> None:
     assert _workday_posted_date(bad) is None
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Locations: New York, NY; Austin, TX", "New York, NY / Austin, TX"),
+    ("Location: McLean, Virginia", "McLean, Virginia"),
+    ("San Francisco, CA • Seattle, WA", "San Francisco, CA / Seattle, WA"),
+    ("3 Locations", "3 Locations"),
+    (None, None),
+    ("", None),
+])
+def test_workday_location_tidy(raw, expected) -> None:
+    assert _workday_location(raw) == expected
 
 
 # --- normalization -----------------------------------------------------------------

@@ -54,8 +54,12 @@ def profile(
     resume_pdf: str = typer.Argument(..., help="Path to your resume PDF"),
 ) -> None:
     """N0: parse a resume PDF into a Profile and cache it as profile.json."""
-    prof = resume.parse_resume(resume_pdf)
-    out = resume.save_profile(prof)
+    try:
+        prof = resume.parse_resume(resume_pdf)
+        out = resume.save_profile(prof)
+    except (FileNotFoundError, RuntimeError) as err:
+        _die(err)
+        return
     console.print(f"[green]Parsed profile[/] -> {out}")
     console.print(f"  name:    {prof.name}")
     console.print(f"  schools: {', '.join(prof.schools) or '(none detected)'}")
@@ -157,11 +161,35 @@ def discover(
 @app.command()
 def jobs() -> None:
     """Show the current Jobs tab."""
-    rows = get_tracker().read_jobs()
+    try:
+        rows = get_tracker().read_jobs()
+    except RuntimeError as err:
+        _die(err)
+        return
     if not rows:
         console.print("[yellow]No jobs yet[/] — run [bold]relay discover[/] first.")
         return
     _print_jobs(rows, title="Jobs tab")
+
+
+@app.command()
+def status() -> None:
+    """Where the funnel stands, per tab, and the next human gate to act on."""
+    try:
+        s = flow.status_summary()
+    except RuntimeError as err:
+        _die(err)
+        return
+    console.print(f"[dim]tracker: {config.tracker_backend()} · jobs: {config.jobs_mode()} "
+                  f"· apollo: {config.apollo_mode()} · gmail: {config.gmail_mode()}[/]")
+    top = f" · top fit {s.top_fit}" if s.top_fit is not None else ""
+    console.print(f"[bold]Jobs[/]      {s.jobs_total} tracked · {s.jobs_pursued} pursued{top}")
+    console.print(
+        f"[bold]Contacts[/]  {s.contacts_total} tracked · {s.contacts_checked} checked · "
+        f"{s.drafts_created} drafted · {s.messaged} messaged · {s.responded} responded")
+    console.print(f"[bold]Projects[/]  {s.projects_total} ideas · "
+                  f"{s.projects_interested} interested · {s.prd_ready} with a PRD prompt")
+    console.print(f"\n[bold green]Next:[/] {s.next_step}")
 
 
 @app.command("find-checked")

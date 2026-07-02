@@ -251,6 +251,17 @@ def _workday_posted_date(text: Any) -> date | None:
     return date.today() - timedelta(days=days)
 
 
+def _workday_location(text: Any) -> str | None:
+    """Tidy Workday's locationsText: drop the 'Locations:' label some tenants prefix
+    and normalize the separator (';', '•', '|') to ' / ' so multi-city postings read
+    like the other providers'. Leaves the useless-but-honest 'N Locations' as-is."""
+    if not text:
+        return None
+    s = re.sub(r"^\s*locations?\s*:\s*", "", str(text), flags=re.IGNORECASE)
+    s = re.sub(r"\s*[;•|]\s*", " / ", s).strip()
+    return s or None
+
+
 def _workday_rows(t: dict[str, str]) -> list[dict[str, Any]]:
     """Workday's public 'cxs' JSON endpoint (POST). The searchText terms narrow the pull
     server-side (banks title internships "summer analyst"); the title regex re-filters.
@@ -275,7 +286,7 @@ def _workday_rows(t: dict[str, str]) -> list[dict[str, Any]]:
                 seen.add(path)
                 rows.append({
                     "company": t["company"], "title": j.get("title"),
-                    "location": j.get("locationsText"),
+                    "location": _workday_location(j.get("locationsText")),
                     "site": "workday",
                     "job_url": f"https://{host}/{site}{path}" if path else None,
                     "date_posted": _workday_posted_date(j.get("postedOn")),

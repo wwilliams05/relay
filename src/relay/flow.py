@@ -121,6 +121,65 @@ def draft_outreach(profile: Profile) -> DraftRun:
     return run
 
 
+@dataclass
+class StatusSummary:
+    """One glance at the funnel, per tab, plus the next human gate to act on."""
+
+    jobs_total: int = 0
+    jobs_pursued: int = 0
+    top_fit: int | None = None
+    contacts_total: int = 0
+    contacts_checked: int = 0
+    drafts_created: int = 0
+    messaged: int = 0
+    responded: int = 0
+    projects_total: int = 0
+    projects_interested: int = 0
+    prd_ready: int = 0
+    next_step: str = ""
+
+
+def status_summary() -> StatusSummary:
+    """Read every tab and say where the funnel stands + which gate comes next."""
+    tracker = get_tracker()
+    jobs = tracker.read_jobs()
+    contacts = tracker.read_contacts()
+    projects = tracker.read_projects()
+
+    s = StatusSummary(
+        jobs_total=len(jobs),
+        jobs_pursued=sum(j.pursue for j in jobs),
+        top_fit=max((j.fit_score for j in jobs), default=None),
+        contacts_total=len(contacts),
+        contacts_checked=sum(c.want_to_message for c in contacts),
+        drafts_created=sum(c.draft_created for c in contacts),
+        messaged=sum(c.messaged_date is not None for c in contacts),
+        responded=sum(c.responded for c in contacts),
+        projects_total=len(projects),
+        projects_interested=sum(p.interested for p in projects),
+        prd_ready=sum(bool(p.prd_prompt) for p in projects),
+    )
+
+    awaiting_draft = sum(c.want_to_message and not c.draft_created for c in contacts)
+    if s.jobs_total == 0:
+        s.next_step = "run `relay discover` to fill the Jobs tab"
+    elif s.jobs_pursued == 0:
+        s.next_step = "tick `pursue` on jobs in the tracker, then `relay find-checked`"
+    elif s.contacts_total == 0:
+        s.next_step = "run `relay find-checked` to find people at your pursued companies"
+    elif s.contacts_checked == 0:
+        s.next_step = "tick `want_to_message` on contacts, then `relay draft`"
+    elif awaiting_draft:
+        s.next_step = f"run `relay draft` ({awaiting_draft} checked contact(s) waiting)"
+    elif s.drafts_created > s.messaged:
+        s.next_step = ("edit + send your drafts in Gmail, then `relay log <name> "
+                       "--messaged today` after each send")
+    else:
+        s.next_step = ("keep the funnel moving: `relay log` chat outcomes; `relay prd` "
+                       "for projects you've ticked `interested` on")
+    return s
+
+
 def _match_contact(contacts: list[Contact], name: str) -> Contact:
     """Resolve a human-typed name to exactly one tracked contact, or fail loudly."""
     low = name.strip().lower()

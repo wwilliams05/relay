@@ -147,3 +147,22 @@ def test_run_discovery_collapses_duplicate_role_location(profile: Profile, monke
     monkeypatch.setattr(discover.jobs, "scrape", lambda terms: dupes)
     out = run_discovery(profile)
     assert len(out) == 1
+    assert "more location" not in (out[0].location or "")  # same city -> no note
+
+
+def test_run_discovery_collapses_cross_city_siblings(profile: Profile, monkeypatch) -> None:
+    """One req posted per city (the Greenhouse/Workday pattern) becomes one row: the
+    best-scored city wins and the siblings fold into a '+N more' note."""
+    cities = [
+        Job(company="Stripe", title="Product Management Intern", location="Austin, TX",
+            job_url="https://a.example/atx", job_type="internship"),
+        Job(company="Stripe", title="Product Management Intern",
+            location="Los Angeles, CA",  # preferred city -> highest fit -> keeper
+            job_url="https://a.example/la", job_type="internship"),
+        Job(company="Stripe", title="Product Management Intern", location="Denver, CO",
+            job_url="https://a.example/den", job_type="internship"),
+    ]
+    monkeypatch.setattr(discover.jobs, "scrape", lambda terms: cities)
+    (kept,) = run_discovery(profile)
+    assert kept.job_url == "https://a.example/la"
+    assert kept.location == "Los Angeles, CA (+2 more locations)"

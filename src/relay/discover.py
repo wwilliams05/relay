@@ -262,15 +262,26 @@ def run_discovery(profile: Profile) -> list[Job]:
             ranked.append(job)
     ranked.sort(key=lambda j: j.fit_score, reverse=True)
 
-    # Collapse near-duplicates: the same role+location posted under different URLs
-    # (or by two sources). Highest-scored copy is first after the sort, so it wins.
+    # Collapse near-duplicates: the same company+role posted under different URLs,
+    # sources, or cities (Greenhouse/Workday post one req per city). The sort put the
+    # best-scored copy first — e.g. the one in a preferred city — so it wins, and the
+    # sibling cities fold into its location as a "+N more" note.
     final: list[Job] = []
-    seen_role: set[tuple[str, str, str]] = set()
+    keepers: dict[tuple[str, str], Job] = {}
+    sibling_locs: dict[tuple[str, str], set[str]] = {}
     for job in ranked:
-        key = (job.company.strip().lower(), (job.title or "").strip().lower(),
-               (job.location or "").strip().lower())
-        if key in seen_role:
+        key = (job.company.strip().lower(), job.title.strip().lower())
+        loc = (job.location or "").strip().lower()
+        if key in keepers:
+            if loc:
+                sibling_locs[key].add(loc)
             continue
-        seen_role.add(key)
+        keepers[key] = job
+        sibling_locs[key] = set()
         final.append(job)
+    for key, job in keepers.items():
+        others = sibling_locs[key] - {(job.location or "").strip().lower()}
+        if others:
+            note = f"+{len(others)} more location" + ("s" if len(others) > 1 else "")
+            job.location = f"{job.location} ({note})" if job.location else f"({note})"
     return final

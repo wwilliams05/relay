@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from relay import flow
-from relay.models import Contact, Profile, Project, Why
+from relay.models import Contact, Job, Profile, Project, Why
 
 
 def _seed_contacts(tracker) -> None:
@@ -75,6 +75,40 @@ def test_add_projects_upserts_without_duplicating(tracker) -> None:
     assert flow.add_projects(_projects()) == 2
     assert flow.add_projects(_projects()) == 2  # re-suggest the same ideas
     assert len(tracker.read_projects()) == 2
+
+
+# --- funnel status --------------------------------------------------------------
+def test_status_walks_the_gates(tracker) -> None:
+    # Empty tracker: the front door is job discovery.
+    assert "relay discover" in flow.status_summary().next_step
+
+    # Jobs found but none pursued.
+    tracker.write_jobs([Job(company="Stripe", title="PM Intern",
+                            job_url="https://x/1", fit_score=80)])
+    s = flow.status_summary()
+    assert (s.jobs_total, s.jobs_pursued, s.top_fit) == (1, 0, 80)
+    assert "pursue" in s.next_step
+
+    # Pursued, contacts found, one checked but not drafted -> draft is next.
+    from conftest import check_box
+    check_box(tracker.path, "Jobs", "company", "Stripe", "pursue")
+    _seed_contacts(tracker)
+    check_box(tracker.path, "Contacts", "name", "Elan Reyes", "want_to_message")
+    s = flow.status_summary()
+    assert (s.contacts_total, s.contacts_checked, s.drafts_created) == (3, 1, 0)
+    assert "relay draft" in s.next_step
+
+
+def test_status_after_drafting_points_at_gmail(tracker, profile: Profile) -> None:
+    from conftest import check_box
+    tracker.write_jobs([Job(company="SpaceX", title="Ops Intern",
+                            job_url="https://x/1", fit_score=80, pursue=True)])
+    _seed_contacts(tracker)
+    check_box(tracker.path, "Contacts", "name", "Elan Reyes", "want_to_message")
+    flow.draft_outreach(profile)
+    s = flow.status_summary()
+    assert s.drafts_created == 1
+    assert "send your drafts" in s.next_step
 
 
 def test_fill_prd_prompts_only_for_interested(tracker, profile: Profile) -> None:
