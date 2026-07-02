@@ -28,6 +28,7 @@ class Profile(BaseModel):
 
     name: str
     schools: list[str] = Field(default_factory=list)
+    major: str = ""  # field of study, e.g. "Business Administration"; weights job fit
     roles: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     anchor_framing: str = "business operations process improvement"

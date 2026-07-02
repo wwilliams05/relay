@@ -20,6 +20,20 @@ from .models import Profile
 # Lines mentioning one of these are treated as a school for the heuristic pass.
 _SCHOOL_HINTS = ("university", "college", "institute of technology", "school of")
 
+# Degree line like "B.S. in Business Administration" / "Bachelor of Arts in Economics".
+_DEGREE_RE = re.compile(
+    r"\b(?:B\.?S\.?|B\.?A\.?|B\.?B\.?A\.?|Bachelor(?:'s)?(?:\s+of\s+[A-Za-z]+)?)\b"
+    r"[^\n,;]*?\b(?:in|of)\s+([A-Za-z][A-Za-z&/ ]{2,40})",
+    re.IGNORECASE,
+)
+# Majors we'll also recognize if they appear verbatim (fallback when the degree line
+# isn't phrased "... in <major>").
+_KNOWN_MAJORS = (
+    "Business Administration", "Business Analytics", "Finance", "Economics",
+    "Marketing", "Management", "Accounting", "Supply Chain Management",
+    "Industrial Engineering", "Computer Science", "Data Science",
+)
+
 
 def extract_text(pdf_path: str | Path) -> str:
     """Return the concatenated text of every page in the resume PDF."""
@@ -53,14 +67,34 @@ def _guess_schools(text: str) -> list[str]:
     return schools
 
 
+def _guess_major(text: str) -> str:
+    """Best-effort field of study from a degree line, else a known-major mention."""
+    m = _DEGREE_RE.search(text)
+    if m:
+        major = re.split(r"\s{2,}|\||;", m.group(1))[0].strip(" .,-–—")
+        # Drop a trailing "and Minor…"/"with…" tail the regex may have swept in.
+        major = re.split(r"\band\b|\bwith\b|\bminor\b", major, flags=re.IGNORECASE)[0].strip()
+        if major:
+            return major.title()
+    low = text.lower()
+    for major in _KNOWN_MAJORS:
+        if major.lower() in low:
+            return major
+    return ""
+
+
 def parse_resume(pdf_path: str | Path) -> Profile:
-    """Extract text and build a heuristic Profile (name + schools).
+    """Extract text and build a heuristic Profile (name + schools + major).
 
     Roles/skills are left for the skill layer to enrich; anchor_framing defaults to
     the v1 throughline, 'business operations process improvement'.
     """
     text = extract_text(pdf_path)
-    return Profile(name=_guess_name(text), schools=_guess_schools(text))
+    return Profile(
+        name=_guess_name(text),
+        schools=_guess_schools(text),
+        major=_guess_major(text),
+    )
 
 
 def save_profile(profile: Profile, path: str | Path | None = None) -> Path:

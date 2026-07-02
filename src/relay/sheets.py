@@ -251,11 +251,17 @@ class LocalXlsxTracker:
         from . import config
         from .xlsx_checkbox import CheckboxInjectionError, inject_checkboxes
 
-        wb.save(self.path)
+        try:
+            wb.save(self.path)
+        except PermissionError as exc:
+            raise RuntimeError(
+                f"Couldn't save {self.path.name} — it's open in Excel (or locked). "
+                "Close the spreadsheet, then run this step again."
+            ) from exc
         if config.xlsx_checkboxes():
             try:
                 inject_checkboxes(self.path)
-            except CheckboxInjectionError:
+            except (CheckboxInjectionError, PermissionError, OSError):
                 pass  # leave the plain FALSE/TRUE workbook in place
 
     def _load(self) -> Workbook:

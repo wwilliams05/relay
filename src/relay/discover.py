@@ -29,7 +29,58 @@ _ROLE_TERMS: dict[str, str] = {
 }
 
 _INTERN_HINTS = ("intern", "co-op", "coop", "co op")
-_ANCHOR_HINTS = ("business operations", "process improvement", "operations")
+
+# User-typed preference phrase -> the title keywords that satisfy it. Matched against
+# the job *title* (the role), not the whole JD — a JD name-drops every function, so
+# full-text matching is what made unrelated roles look like a fit.
+_PREF_TITLE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "product management": ("product manager", "product management", "associate product manager", "apm"),
+    "product manager": ("product manager", "product management", "apm"),
+    "apm": ("associate product manager", "apm", "product manager"),
+    "bizops": ("business operations", "bizops", "biz ops"),
+    "biz ops": ("business operations", "bizops"),
+    "business operations": ("business operations", "bizops"),
+    "strategy and operations": ("strategy and operations", "strategy & operations", "strategy"),
+    "strategy & operations": ("strategy and operations", "strategy & operations", "strategy"),
+    "strategy": ("strategy", "strategy and operations"),
+    "operations": ("operations",),
+    "supply chain": ("supply chain",),
+    "finance": ("finance", "financial"),
+    "marketing": ("marketing",),
+    "growth": ("growth",),
+    "consulting": ("consultant", "consulting"),
+    "program management": ("program manager", "program management"),
+    "project management": ("project manager", "project management"),
+}
+
+# Title keywords for business/ops/management-track roles — aligns with a business major
+# and counts as a soft positive even when it isn't one of the user's stated preferences.
+_BUSINESS_TITLE_KEYWORDS = (
+    "business operations", "bizops", "operations", "strategy", "product manager",
+    "product management", "program manager", "project manager", "supply chain",
+    "procurement", "finance", "financial", "marketing", "growth", "sales", "revenue",
+    "consultant", "consulting", "strategist", "business analyst", "management",
+    "administration", "go-to-market", "partnerships", "commercial",
+)
+
+# Title keywords for roles in a clearly different field from a business/ops track.
+# These get a strong penalty so engineering/technical/clinical roles sink.
+_OFFTARGET_TITLE_KEYWORDS = (
+    "software engineer", "software developer", "backend", "front end", "frontend",
+    "full stack", "fullstack", "data engineer", "data scientist", "machine learning",
+    "ml engineer", "research scientist", "hardware", "mechanical", "electrical",
+    "firmware", "embedded", "robotics", "clinical", "nurse", "physician", "attorney",
+    "paralegal", "chemist", "biologist", "technician", "geologist",
+    # generic technical / other-field title words (catch Manufacturing Engineer,
+    # Naval Architect, Data Scientist, Legal Intern, …)
+    "engineer", "architect", "scientist", "legal", "counsel", "designer",
+)
+
+# Words in a major that mark it as business/management-adjacent.
+_BUSINESS_MAJOR_WORDS = (
+    "business", "administration", "management", "finance", "economics", "marketing",
+    "operations", "supply chain", "commerce", "accounting",
+)
 
 
 def derive_search_terms(profile: Profile) -> list[str]:
@@ -51,43 +102,76 @@ def _wants_internship(profile: Profile) -> bool:
     return any(h in notes for h in _INTERN_HINTS) or True  # v1 is internship-focused
 
 
+def _preferred_title_keywords(notes: str) -> list[str]:
+    """Title keywords the user is aiming at, parsed from their 'Looking for' notes."""
+    notes = f" {notes.lower()} "
+    kws: list[str] = []
+    for phrase, keywords in _PREF_TITLE_KEYWORDS.items():
+        if phrase in notes:
+            for k in keywords:
+                if k not in kws:
+                    kws.append(k)
+    return kws
+
+
+def _has_business_major(profile: Profile) -> bool:
+    """True if the user's major (or notes, as a fallback) reads as business/management."""
+    blob = f"{profile.major} {profile.extra_context}".lower()
+    return any(w in blob for w in _BUSINESS_MAJOR_WORDS)
+
+
 def score_job(job: Job, profile: Profile) -> tuple[int, str]:
-    """Transparent 0–100 fit score + a one-line reason."""
-    haystack = f"{job.title} {job.description or ''} {job.job_type or ''}".lower()
-    notes = profile.extra_context.lower()
+    """Transparent 0–100 fit score + a one-line reason, judged mostly on the role
+    (job title). Typed preferences and a business major are the strongest signals;
+    off-field roles (engineering/clinical/…) are penalized so they don't float up."""
+    title = job.title.lower()
     reasons: list[str] = []
-    score = 40  # baseline for any scraped match
+    score = 50  # neutral baseline
 
-    # Preferred role match (from the user's notes).
-    matched_roles = [p for p in _ROLE_TERMS if p.strip() in notes and p.strip() in haystack]
-    if matched_roles:
-        score += 25
-        reasons.append("matches preferred role")
+    # 1) Role fit, read from the title. Explicit preference > general business role.
+    preferred = _preferred_title_keywords(profile.extra_context)
+    pref_hit = next((k for k in preferred if k in title), None)
+    biz_hit = next((k for k in _BUSINESS_TITLE_KEYWORDS if k in title), None)
+    if pref_hit:
+        score += 30
+        reasons.append(f"matches your target role ({pref_hit})")
+    elif biz_hit:
+        score += 12
+        reasons.append(f"business/ops role ({biz_hit})")
 
-    # Internship / co-op signal — read the title + job_type, not the description
-    # (a JD can say "not an internship", which substring-matching would misread).
+    # 2) Off-field penalty — engineering/technical/clinical roles are a different track.
+    off_hit = next((k for k in _OFFTARGET_TITLE_KEYWORDS if k in title), None)
+    if off_hit and not pref_hit:
+        score -= 45
+        reasons.append(f"off-target field ({off_hit})")
+
+    # 3) Major alignment — a business major reinforces business/ops roles (and further
+    #    discounts off-field ones).
+    if _has_business_major(profile):
+        maj = profile.major or "business major"
+        if (pref_hit or biz_hit) and not off_hit:
+            score += 12
+            reasons.append(f"fits your major ({maj})")
+        elif off_hit:
+            score -= 8
+
+    # 4) Internship signal — read title + job_type, not the JD (a JD can say
+    #    "not an internship", which substring-matching would misread).
     intern_field = f"{job.title} {job.job_type or ''}".lower()
-    is_intern = any(h in intern_field for h in _INTERN_HINTS)
-    if is_intern:
-        score += 20
-        reasons.append("internship/co-op")
-    elif _wants_internship(profile):
-        score -= 20
+    if not any(h in intern_field for h in _INTERN_HINTS) and _wants_internship(profile):
+        score -= 15
         reasons.append("not an internship")
 
-    # Anchor / domain keywords.
-    if any(h in haystack for h in _ANCHOR_HINTS):
-        score += 10
-        reasons.append("ops/process-improvement fit")
-
-    # Skills overlap from the resume.
-    overlap = [s for s in profile.skills if s and s.lower() in haystack]
-    if overlap:
-        score += min(15, 5 * len(overlap))
-        reasons.append("skills: " + ", ".join(overlap[:3]))
+    # 5) Skills overlap — a minor tiebreaker only, and only for on-target roles so a
+    #    shared tool (e.g. SQL) can't lift an off-field engineering posting.
+    if not off_hit:
+        overlap = [s for s in profile.skills if s and s.lower() in title]
+        if overlap:
+            score += min(6, 2 * len(overlap))
+            reasons.append("skills: " + ", ".join(overlap[:3]))
 
     score = max(0, min(100, score))
-    return score, "; ".join(reasons) or "keyword match"
+    return score, "; ".join(reasons) or "internship match"
 
 
 def run_discovery(profile: Profile) -> list[Job]:
