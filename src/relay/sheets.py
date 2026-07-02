@@ -284,22 +284,27 @@ class LocalXlsxTracker:
     def _read_rows(self, title: str, headers: list[str]) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
+        # read_only holds the file open until close(); on Windows a lingering handle
+        # can block the next save, so always close it (try/finally around the read).
         wb = load_workbook(self.path, read_only=True)
-        if title not in wb.sheetnames:
-            return []
-        ws = wb[title]
-        rows_iter = ws.iter_rows(values_only=True)
         try:
-            header_row = list(next(rows_iter))
-        except StopIteration:
-            return []
-        header_row = [_cell_str(h) for h in header_row]
-        out: list[dict[str, Any]] = []
-        for raw in rows_iter:
-            if raw is None or all(c is None or _cell_str(c) == "" for c in raw):
-                continue
-            out.append({h: raw[i] if i < len(raw) else None for i, h in enumerate(header_row)})
-        return out
+            if title not in wb.sheetnames:
+                return []
+            ws = wb[title]
+            rows_iter = ws.iter_rows(values_only=True)
+            try:
+                header_row = list(next(rows_iter))
+            except StopIteration:
+                return []
+            header_row = [_cell_str(h) for h in header_row]
+            out: list[dict[str, Any]] = []
+            for raw in rows_iter:
+                if raw is None or all(c is None or _cell_str(c) == "" for c in raw):
+                    continue
+                out.append({h: raw[i] if i < len(raw) else None for i, h in enumerate(header_row)})
+            return out
+        finally:
+            wb.close()
 
     def _write_rows(self, wb: Workbook, title: str, headers: list[str],
                     rows: list[dict[str, Any]]) -> None:
@@ -365,7 +370,8 @@ class LocalXlsxTracker:
 
     # -- Jobs -----------------------------------------------------------------
     def write_jobs(self, jobs: list[Job]) -> None:
-        """Upsert by job_key, preserving the human `pursue` check on existing rows."""
+        """Upsert by job_key, preserving the human `pursue` check on existing rows, and
+        write highest fit score first so the best matches sit at the top of the tab."""
         existing = {job_key(r): r for r in self._read_rows("Jobs", JOB_COLUMNS)}
         merged: dict[str, dict[str, Any]] = dict(existing)
         for j in jobs:
@@ -375,8 +381,16 @@ class LocalXlsxTracker:
                 row["pursue"] = existing[k].get("pursue", row["pursue"])
                 row["status"] = existing[k].get("status", row["status"])
             merged[k] = row
+
+        def _fit(row: dict[str, Any]) -> int:
+            try:
+                return int(row.get("fit_score") or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        ordered = sorted(merged.values(), key=_fit, reverse=True)
         wb = self._load()
-        self._write_rows(wb, "Jobs", JOB_COLUMNS, list(merged.values()))
+        self._write_rows(wb, "Jobs", JOB_COLUMNS, ordered)
         self._save(wb)
 
     def read_jobs(self) -> list[Job]:
