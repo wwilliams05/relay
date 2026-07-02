@@ -7,8 +7,10 @@ edit and send, and tracks the funnel through to "did they respond / what did we 
 
 **It prepares; you approve.** Nothing sends or submits on its own.
 
-This is **v1: the networking layer.** Job discovery + resume tailoring are Phase 2.
-See [`docs/PRD.md`](docs/PRD.md).
+**Job discovery is now the front door:** from your résumé + preferences it finds and
+fit-ranks internships across ~50 companies (official ATS APIs — Greenhouse/Lever/Ashby/
+Workday), you tick which to pursue, and the networking flow runs per company. Résumé
+tailoring is still Phase 2. See [`docs/PRD.md`](docs/PRD.md).
 
 ## Quickstart
 

@@ -10,8 +10,10 @@ user's voice, drops drafts into Gmail, and tracks the funnel through to "did the
 respond / what did we discuss." Full spec: `docs/PRD.md` (read §3, §5, §6 before
 working on any stage).
 
-**This is v1 — the networking layer only.** Job discovery and resume tailoring are
-Phase 2 and are NOT in scope. Don't build them unless asked.
+**Job discovery (N-1) has been pulled forward** and is now Relay's entry point: from a
+résumé + typed preferences it finds ranked internships across ~50 target companies
+(via official ATS APIs), the user checks which to pursue, and the existing networking
+flow runs per pursued company. Resume tailoring is still Phase 2 and NOT in scope.
 
 ## Golden rules (do not violate)
 
@@ -35,11 +37,18 @@ Phase 2 and are NOT in scope. Don't build them unless asked.
   (hooks, drafts, project ideas, ranking) belongs here.
 - **Deterministic code** lives in `src/relay/`:
   - `models.py` — pydantic schema, mirrors the tracker tabs. Source of truth for shape.
+  - `config.py` — env loading + adapter modes (jobs, Apollo, tracker, fit floor).
   - `outreach.py` — the voice rules, encoded once.
-  - `resume.py` — resume PDF → `Profile` (N0).
+  - `resume.py` — résumé PDF → `Profile` (name/schools/major) (N0).
+  - `jobs.py` — job discovery adapters: ATS APIs (Greenhouse/Lever/Ashby/Workday) +
+    JobSpy + fixtures. Companies live in `targets.yml` (N-1).
+  - `discover.py` — derive search terms + transparent fit-scoring/ranking (N-1).
   - `apollo.py` — people search + enrichment (N2, N3).
   - `gmail.py` — create drafts, never send (N5).
-  - `sheets.py` — tracker via Google Sheets; `Tracker` Protocol allows a local-xlsx swap.
+  - `sheets.py` — tracker; `Tracker` Protocol (local xlsx default, Google Sheets stub).
+  - `flow.py` — orchestration shared by the launcher + CLI.
+  - `gui.py` + `Relay.pyw` — tkinter desktop launcher.
+  - `xlsx_checkbox.py` — render boolean gate cells as native Excel checkboxes.
   - `cli.py` — thin deterministic entry points.
 
 ## Conventions
@@ -53,7 +62,17 @@ Phase 2 and are NOT in scope. Don't build them unless asked.
 ## Status & next step
 
 - **M0 (done):** scaffold — models, stubs, skill-commands, docs.
-- **M1 (next):** implement `apollo.search_people` + `apollo.enrich` and wire `sheets.py`
-  so `/find-people` on "SpaceX Starlink, Business Operations Co-Op" returns a ranked,
-  enriched contact list written to the Contacts tab. That's the smallest useful demo.
-- Then M2 (drafts → Gmail), M3 (tracking + project suggester). See `docs/PRD.md` §8.
+- **M1 (done):** `apollo.search_people` + `apollo.enrich` + `sheets.py`; `relay find`
+  returns a ranked, enriched contact list to the Contacts tab (fixtures without a key).
+- **N-1 job discovery (done):** `jobs.py` + `discover.py` + `flow.py` + `gui.py`.
+  ~50 companies in `targets.yml` across Greenhouse/Lever/Ashby/Workday, parallel fetch,
+  fit-scoring weighted by typed preferences + major + recency + preferred locations,
+  duplicate collapse, clickable URLs, and a twice-daily Windows refresh task.
+- **Next:**
+  - **M2 — drafts → Gmail (N5):** `/draft-outreach` + `gmail.py` create-draft, gated on
+    `want_to_message`. Must obey `outreach.py` and the referral rule.
+  - **Real people search:** `apollo.py` live mode needs `APOLLO_API_KEY` (fixtures today).
+  - **M3 — tracking + project suggester (N6/N7):** `/log-chat`, `/suggest-project`.
+  - **Google Sheets backend:** implement `SheetsTracker` (currently a NotImplemented stub).
+- **Golden-rule reminder for any new work:** every stage stays human-gated; no LinkedIn
+  scraping; drafts obey `outreach.py`; never name an uncleared referrer.
