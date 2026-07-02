@@ -12,6 +12,7 @@ operations run on a background thread; the window stays responsive and reports s
 from __future__ import annotations
 
 import os
+import queue
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -24,6 +25,9 @@ class RelayApp:
         self.root = root
         self.resume_path: str | None = None
         self._busy = False
+        # Worker threads hand results back through this queue; only the main thread
+        # (via _poll_results) touches Tk — cross-thread Tk calls are not safe.
+        self._results: queue.Queue = queue.Queue()
         root.title("Relay")
         root.minsize(520, 340)
 
@@ -77,6 +81,8 @@ class RelayApp:
         self.progress = ttk.Progressbar(frm, mode="indeterminate")
         self.progress.grid(row=8, column=0, columnspan=3, sticky="ew", padx=14, pady=(0, 12))
 
+        self._poll_results()  # start the main-thread result pump
+
     # -- helpers --------------------------------------------------------------
     def pick_resume(self) -> None:
         path = filedialog.askopenfilename(
@@ -110,22 +116,37 @@ class RelayApp:
             self.status.set(msg)
 
     def _run_bg(self, work, on_done) -> None:
-        """Run `work()` off-thread; call on_done(result, error) back on the UI thread."""
-        if self._busy:
-            return
+        """Run `work()` off the UI thread; hand (on_done, result, error) back via the
+        queue so `_poll_results` can invoke on_done on the main thread.
+
+        The worker must never call Tk directly (not thread-safe) — hence the queue.
+        Callers guard re-entry via `_busy` *before* flipping it on (see the handlers).
+        """
 
         def target():
             try:
                 result, err = work(), None
             except Exception as exc:  # surfaced to the user, not swallowed
                 result, err = None, exc
-            self.root.after(0, lambda: on_done(result, err))
+            self._results.put((on_done, result, err))
 
         threading.Thread(target=target, daemon=True).start()
+
+    def _poll_results(self) -> None:
+        """Main-thread pump: drain finished background work and run its callbacks."""
+        try:
+            while True:
+                on_done, result, err = self._results.get_nowait()
+                on_done(result, err)
+        except queue.Empty:
+            pass
+        self.root.after(100, self._poll_results)
 
     # -- save profile + preferences -------------------------------------------
     def run_save(self) -> None:
         """Persist the résumé + 'Looking for' text to profile.json without discovering."""
+        if self._busy:
+            return
         notes = self.notes.get()
         self._set_busy(True, "Saving your résumé + preferences…")
 
@@ -144,6 +165,8 @@ class RelayApp:
 
     # -- step 1: discover jobs ------------------------------------------------
     def run_discover(self) -> None:
+        if self._busy:
+            return
         notes = self.notes.get()
         self._set_busy(True, f"Discovering jobs (mode: {config.jobs_mode()})… this can take a bit.")
 
@@ -165,6 +188,8 @@ class RelayApp:
 
     # -- step 2: find people for checked jobs ---------------------------------
     def run_find_checked(self) -> None:
+        if self._busy:
+            return
         self._set_busy(True, "Finding people for the jobs you checked…")
 
         def work():
