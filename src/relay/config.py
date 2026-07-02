@@ -55,6 +55,14 @@ def jobs_results() -> int:
     return int(raw) if raw.isdigit() else 20
 
 
+# Drop discovered jobs whose fit score is below this, so the Jobs tab stays focused on
+# on-target roles instead of every internship the target companies also post (e.g. the
+# engineering roles at a fintech). Set 0 to keep everything.
+def jobs_min_fit() -> int:
+    raw = _env("RELAY_JOBS_MIN_FIT", "20")
+    return int(raw) if raw.lstrip("-").isdigit() else 20
+
+
 # --- ATS APIs (Greenhouse / Lever / Ashby) ----------------------------------
 # Official ATS job-board JSON endpoints for a curated list of target companies.
 # Unlike JobSpy (board scraping, rate-limited/blockable), these are free, no-auth,

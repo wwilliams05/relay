@@ -1,31 +1,73 @@
 # Relay — ATS target companies for job discovery (N-1).
 #
-# Relay queries each company's OFFICIAL applicant-tracking-system (ATS) job board
-# via its public JSON API — free, no auth, structured, and (unlike scraping Indeed/
-# LinkedIn) never rate-limited or blocked. This is the reliable discovery source that
-# complements JobSpy's broad board scraping. See src/relay/jobs.py.
+# Relay queries each company's OFFICIAL applicant-tracking-system (ATS) job board via
+# its public JSON API — free, no auth, structured, and (unlike scraping Indeed/LinkedIn)
+# never rate-limited or blocked. See src/relay/jobs.py.
 #
 # Each entry needs three fields:
 #   company  — display name written to the Jobs tab
 #   provider — one of: greenhouse | lever | ashby
-#   token    — the board slug in the ATS URL. Find it by opening the company's
-#              careers page and reading the URL:
-#                greenhouse -> boards.greenhouse.io/<token>        (or job-boards.greenhouse.io/<token>)
+#   token    — the board slug in the ATS URL. Find it from the company's careers page:
+#                greenhouse -> boards.greenhouse.io/<token>   (or job-boards.greenhouse.io/<token>)
 #                ashby      -> jobs.ashbyhq.com/<token>
 #                lever      -> jobs.lever.co/<token>
 #
-# Only internship / co-op titles are kept (v1 is internship-focused); fit-scoring
-# against your resume + notes ranks them. Edit freely — this file, if present,
-# replaces the built-in defaults. Delete it to fall back to those defaults.
+# Only internship / co-op titles are kept, and fit-scoring against your résumé + notes
+# ranks them (business/ops/PM roles rise; off-field engineering/clinical roles sink and
+# are dropped below RELAY_JOBS_MIN_FIT). Edit freely — this file, if present, replaces
+# the built-in defaults. Delete it to fall back to those defaults.
+#
+# NOTE: big consulting/finance names (McKinsey, BCG, Bain, Accenture, Deloitte, Visa,
+# Mastercard) and some primes (Tesla) run their own/Workday career sites and are NOT
+# reachable via these ATS APIs — they can't be added here. All tokens below are verified.
 
 targets:
+  # --- Fintech & payments ---
   - { company: Stripe,     provider: greenhouse, token: stripe }
-  - { company: DoorDash,   provider: greenhouse, token: doordashusa }
-  - { company: Databricks, provider: greenhouse, token: databricks }
-  - { company: Anduril,    provider: greenhouse, token: andurilindustries }
   - { company: Coinbase,   provider: greenhouse, token: coinbase }
-  - { company: Airbnb,     provider: greenhouse, token: airbnb }
-  - { company: Notion,     provider: ashby,      token: notion }
+  - { company: Block,      provider: greenhouse, token: block }
+  - { company: Brex,       provider: greenhouse, token: brex }
+  - { company: Affirm,     provider: greenhouse, token: affirm }
+  - { company: Robinhood,  provider: greenhouse, token: robinhood }
+  - { company: SoFi,       provider: greenhouse, token: sofi }
+  - { company: Marqeta,    provider: greenhouse, token: marqeta }
+  - { company: Chime,      provider: greenhouse, token: chime }
+  - { company: FanDuel,    provider: greenhouse, token: fanduel }
+  - { company: Carta,      provider: greenhouse, token: carta }
   - { company: Ramp,       provider: ashby,      token: Ramp }
-  - { company: OpenAI,     provider: ashby,      token: openai }
+  - { company: Mercury,    provider: ashby,      token: mercury }
+
+  # --- Marketplaces & consumer ---
+  - { company: DoorDash,   provider: greenhouse, token: doordashusa }
+  - { company: Airbnb,     provider: greenhouse, token: airbnb }
+  - { company: Instacart,  provider: greenhouse, token: instacart }
+  - { company: Faire,      provider: greenhouse, token: faire }
+  - { company: Toast,      provider: greenhouse, token: toast }
+  - { company: Pinterest,  provider: greenhouse, token: pinterest }
+  - { company: Reddit,     provider: greenhouse, token: reddit }
+  - { company: Gopuff,     provider: lever,      token: gopuff }
+
+  # --- Enterprise SaaS & data ---
+  - { company: Databricks, provider: greenhouse, token: databricks }
+  - { company: MongoDB,    provider: greenhouse, token: mongodb }
+  - { company: Cloudflare, provider: greenhouse, token: cloudflare }
+  - { company: HubSpot,    provider: greenhouse, token: hubspot }
+  - { company: Asana,      provider: greenhouse, token: asana }
+  - { company: Figma,      provider: greenhouse, token: figma }
+  - { company: Samsara,    provider: greenhouse, token: samsara }
+  - { company: "Scale AI", provider: greenhouse, token: scaleai }
+  - { company: Flexport,   provider: greenhouse, token: flexport }
+  - { company: Gusto,      provider: greenhouse, token: gusto }
+  - { company: Checkr,     provider: greenhouse, token: checkr }
+  - { company: Notion,     provider: ashby,      token: notion }
+  - { company: Zip,        provider: ashby,      token: zip }
+  - { company: Deel,       provider: ashby,      token: deel }
+  - { company: Vanta,      provider: ashby,      token: vanta }
+
+  # --- Defense, space & deep tech ---
+  - { company: SpaceX,     provider: greenhouse, token: spacex }
+  - { company: Anduril,    provider: greenhouse, token: andurilindustries }
   - { company: Palantir,   provider: lever,      token: palantir }
+
+  # --- AI ---
+  - { company: OpenAI,     provider: ashby,      token: openai }

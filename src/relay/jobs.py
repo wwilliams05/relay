@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import html
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -200,26 +201,35 @@ _ATS_PROVIDERS = {
 }
 
 
-def _ats_scrape(terms: list[str], location: str, results_wanted: int) -> list[Job]:
-    """Query each target company's ATS, keep internship-titled roles, normalize to Jobs.
+def _fetch_target(target: dict[str, str]) -> list[dict[str, Any]]:
+    """Fetch one company's postings. Best-effort: a bad slug / blocked board / blip on
+    one company is swallowed so the rest still return."""
+    fetch = _ATS_PROVIDERS.get(target["provider"])
+    if fetch is None:
+        return []
+    try:
+        return fetch(target["company"], target["token"])
+    except Exception:
+        return []
 
-    Best-effort per company: a bad token or a network blip on one board is swallowed so
-    the rest still return. Fit-scoring/ranking against the Profile happens downstream.
+
+def _ats_scrape(terms: list[str], location: str, results_wanted: int) -> list[Job]:
+    """Query every target company's ATS in parallel (network-bound), keep the
+    internship-titled roles, and normalize to Jobs. Fit-scoring/ranking happens
+    downstream in `relay.discover`.
     """
     if not config.ats_enabled():
         return []
+    targets = _load_ats_targets()
+    if not targets:
+        return []
     jobs: list[Job] = []
-    for target in _load_ats_targets():
-        fetch = _ATS_PROVIDERS.get(target["provider"])
-        if fetch is None:
-            continue
-        try:
-            rows = fetch(target["company"], target["token"])
-        except Exception:
-            continue  # bad slug, board offline, rate limit — skip this company only
-        for row in rows:
-            if _INTERN_TITLE_RE.search(str(row.get("title") or "")):
-                jobs.append(_normalize(row))
+    # Boards are independent IO — fan out so 40 companies take ~one slow request, not 40.
+    with ThreadPoolExecutor(max_workers=min(12, len(targets))) as pool:
+        for rows in pool.map(_fetch_target, targets):
+            for row in rows:
+                if _INTERN_TITLE_RE.search(str(row.get("title") or "")):
+                    jobs.append(_normalize(row))
     return jobs
 
 

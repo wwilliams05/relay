@@ -8,7 +8,7 @@ the /suggest-* skills can refine later, but the launcher never needs an LLM to r
 
 from __future__ import annotations
 
-from . import jobs
+from . import config, jobs
 from .models import Job, Profile
 from .sheets import job_key
 
@@ -102,6 +102,12 @@ def _wants_internship(profile: Profile) -> bool:
     return any(h in notes for h in _INTERN_HINTS) or True  # v1 is internship-focused
 
 
+def _is_internship(job: Job) -> bool:
+    """Intern/co-op read from title + job_type (not the JD, which can say the opposite)."""
+    field = f"{job.title} {job.job_type or ''}".lower()
+    return any(h in field for h in _INTERN_HINTS)
+
+
 def _preferred_title_keywords(notes: str) -> list[str]:
     """Title keywords the user is aiming at, parsed from their 'Looking for' notes."""
     notes = f" {notes.lower()} "
@@ -175,7 +181,8 @@ def score_job(job: Job, profile: Profile) -> tuple[int, str]:
 
 
 def run_discovery(profile: Profile) -> list[Job]:
-    """N-1: derive terms -> scrape -> dedup -> fit-rank. Returns ranked Jobs (no IO)."""
+    """N-1: derive terms -> scrape -> dedup -> fit-rank -> drop off-target. Returns
+    ranked Jobs at or above RELAY_JOBS_MIN_FIT (no IO)."""
     terms = derive_search_terms(profile)
     scraped = jobs.scrape(terms)
 
@@ -183,9 +190,14 @@ def run_discovery(profile: Profile) -> list[Job]:
     for job in scraped:
         seen.setdefault(job_key(job), job)  # first wins; scrape order is source order
 
+    floor = config.jobs_min_fit()
+    wants_intern = _wants_internship(profile)
     ranked: list[Job] = []
     for job in seen.values():
+        if wants_intern and not _is_internship(job):
+            continue  # v1 is internship-only; drop full-time roles (JobSpy/fixtures)
         job.fit_score, job.fit_reason = score_job(job, profile)
-        ranked.append(job)
+        if job.fit_score >= floor:  # drop engineering/off-field noise from big boards
+            ranked.append(job)
     ranked.sort(key=lambda j: j.fit_score, reverse=True)
     return ranked
