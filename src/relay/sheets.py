@@ -66,7 +66,7 @@ PROJECT_COLUMNS = [
     "interested", "prd_prompt",
 ]
 JOB_COLUMNS = [
-    "company", "title", "location", "job_type", "source", "job_url",
+    "company", "title", "location", "source", "job_url",
     "date_posted", "fit_score", "fit_reason", "pursue", "status",
 ]
 

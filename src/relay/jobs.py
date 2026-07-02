@@ -168,13 +168,29 @@ def _ats_post(url: str, payload: dict[str, Any]) -> Any:
         return resp.json()
 
 
+# Greenhouse often puts a work arrangement (not a city) in location.name; the real
+# city/cities live in offices[].name. Recognize these so we fall back to offices.
+_WORK_ARRANGEMENT = {
+    "in-office", "in office", "remote", "hybrid", "on-site", "onsite",
+    "flexible", "work from home", "wfh",
+}
+
+
+def _greenhouse_location(j: dict[str, Any]) -> str | None:
+    name = ((j.get("location") or {}).get("name") or "").strip()
+    offices = [o.get("name") for o in (j.get("offices") or []) if o.get("name")]
+    if not name or name.lower() in _WORK_ARRANGEMENT:
+        return " / ".join(offices) or name or None
+    return name
+
+
 def _greenhouse_rows(t: dict[str, str]) -> list[dict[str, Any]]:
     data = _ats_get(f"https://boards-api.greenhouse.io/v1/boards/{t['token']}/jobs?content=true")
     rows = []
     for j in data.get("jobs", []):
         rows.append({
             "company": t["company"], "title": j.get("title"),
-            "location": (j.get("location") or {}).get("name"),
+            "location": _greenhouse_location(j),
             "site": "greenhouse", "job_url": j.get("absolute_url"),
             # first_published = when it was posted; updated_at is any later edit (which
             # made long-open roles look freshly posted). Prefer the real post date.
