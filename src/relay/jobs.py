@@ -8,7 +8,8 @@ Two independent sources, selected by `RELAY_JOBS_MODE` (see config.jobs_mode):
              coverage across every company, but network-bound and often rate-limited.
 
 Modes: "ats" (ATS only), "live" (JobSpy only), "fixture" (canned, fully offline),
-"auto" (ATS + JobSpy merged, falling back to fixtures if both come up empty).
+"auto" (ATS, falling back to JobSpy then fixtures only if ATS is empty — so the
+launcher never stalls on a blocked scrape).
 
 Every posting funnels through `_normalize` so ATS, JobSpy, and fixture rows map to a
 Job the same way. Fit-scoring against the Profile happens in `relay.discover`.
@@ -311,10 +312,13 @@ def scrape(
         return _ats_scrape(terms, location, results_wanted)
     if mode == "live":
         return _live_scrape(terms, location, results_wanted)
-    # auto: ATS (reliable) first, then JobSpy (breadth); fixtures only if both are empty.
+    # auto: ATS is the reliable primary. Only fall through to JobSpy's board scraping if
+    # ATS came up empty — a blocked/slow scrape must never stall the launcher — and to
+    # fixtures only if that fails too. So `auto` returns quickly whenever ATS has results.
     jobs = _ats_scrape(terms, location, results_wanted)
-    try:
-        jobs += _live_scrape(terms, location, results_wanted)
-    except Exception:
-        pass
+    if not jobs:
+        try:
+            jobs = _live_scrape(terms, location, results_wanted)
+        except Exception:
+            jobs = []
     return jobs or _fixture_scrape(terms, location, results_wanted)

@@ -40,7 +40,8 @@ def apollo_key() -> str | None:
 # "live"    -> scrape real job boards via JobSpy (network; may be rate-limited)
 # "ats"     -> query official ATS APIs only (targets.yml; reliable, no scraping)
 # "fixture" -> canned internship postings so the flow runs fully offline
-# "auto"    -> ATS APIs + JobSpy merged, falling back to fixtures if both come up empty
+# "auto"    -> ATS APIs; JobSpy only if ATS is empty, fixtures only if that fails too
+#              (so discovery returns fast and never stalls on a blocked scrape)
 def jobs_mode() -> str:
     return _env("RELAY_JOBS_MODE", "auto").lower()
 

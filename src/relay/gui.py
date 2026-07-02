@@ -60,6 +60,8 @@ class RelayApp:
         self.btn_people = ttk.Button(
             actions, text="②  Find people for checked jobs", command=self.run_find_checked)
         self.btn_people.pack(side="left", padx=4)
+        self.btn_save = ttk.Button(actions, text="Save", command=self.run_save)
+        self.btn_save.pack(side="left", padx=4)
         self.btn_open = ttk.Button(actions, text="Open spreadsheet", command=self.open_sheet)
         self.btn_open.pack(side="left", padx=4)
 
@@ -99,6 +101,7 @@ class RelayApp:
         state = "disabled" if busy else "normal"
         self.btn_discover.config(state=state)
         self.btn_people.config(state=state)
+        self.btn_save.config(state=state)
         if busy:
             self.progress.start(12)
         else:
@@ -119,6 +122,25 @@ class RelayApp:
             self.root.after(0, lambda: on_done(result, err))
 
         threading.Thread(target=target, daemon=True).start()
+
+    # -- save profile + preferences -------------------------------------------
+    def run_save(self) -> None:
+        """Persist the résumé + 'Looking for' text to profile.json without discovering."""
+        notes = self.notes.get()
+        self._set_busy(True, "Saving your résumé + preferences…")
+
+        def work():
+            return flow.build_profile(self.resume_path, notes)
+
+        def done(profile, err):
+            self._set_busy(False)
+            if err:
+                self.status.set("Save failed.")
+                messagebox.showerror("Relay", f"Save failed:\n{err}")
+                return
+            self.status.set(f"Saved — {profile.name}. Preferences stored; ready to find jobs.")
+
+        self._run_bg(work, done)
 
     # -- step 1: discover jobs ------------------------------------------------
     def run_discover(self) -> None:
