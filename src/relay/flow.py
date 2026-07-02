@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 from . import discover, gmail, outreach, pipeline, resume
-from .models import Contact, Job, Profile, Target, Why
+from .models import Contact, Job, Profile, Project, Target, Why
 from .sheets import get_tracker
 
 
@@ -118,3 +119,74 @@ def draft_outreach(profile: Profile) -> DraftRun:
         tracker.update_contact(contact)
         run.created.append((contact, ref))
     return run
+
+
+def _match_contact(contacts: list[Contact], name: str) -> Contact:
+    """Resolve a human-typed name to exactly one tracked contact, or fail loudly."""
+    low = name.strip().lower()
+    exact = [c for c in contacts if c.name.lower() == low]
+    if len(exact) == 1:
+        return exact[0]
+    partial = [c for c in contacts if low in c.name.lower()]
+    if len(partial) == 1:
+        return partial[0]
+    if not partial:
+        raise RuntimeError(
+            f"no contact matching {name!r} in the Contacts tab — run `relay contacts` "
+            "to see who's tracked.")
+    raise RuntimeError(
+        f"{name!r} is ambiguous — matches: " + ", ".join(c.name for c in partial))
+
+
+def log_chat(
+    name: str,
+    *,
+    responded: bool | None = None,
+    notes: str | None = None,
+    next_step: str | None = None,
+    messaged_date: date | None = None,
+    append_notes: bool = True,
+) -> Contact:
+    """N6: record what happened with a contact back to the Contacts tab.
+
+    Only the fields you pass change; notes append by default so a second chat never
+    silently erases the first. Returns the updated contact.
+    """
+    tracker = get_tracker()
+    contact = _match_contact(tracker.read_contacts(), name)
+    if responded is not None:
+        contact.responded = responded
+    if messaged_date is not None:
+        contact.messaged_date = messaged_date
+    if notes is not None:
+        notes = notes.strip()
+        if append_notes and contact.chat_notes and notes:
+            contact.chat_notes = f"{contact.chat_notes} | {notes}"
+        else:
+            contact.chat_notes = notes or contact.chat_notes
+    if next_step is not None:
+        contact.next_step = next_step.strip() or None
+    tracker.update_contact(contact)
+    return contact
+
+
+def add_projects(projects: list[Project]) -> int:
+    """N7: write suggested projects to the Projects tab (`interested` unchecked).
+    Upserts — re-suggesting the same idea never duplicates or unticks it."""
+    if projects:
+        get_tracker().write_projects(projects)
+    return len(projects)
+
+
+def fill_prd_prompts(profile: Profile) -> list[Project]:
+    """N7 second gate: for every project the user ticked `interested` on that lacks a
+    prd_prompt, compose the ready-to-build prompt and persist it. Returns the filled
+    projects (empty = nothing was waiting)."""
+    tracker = get_tracker()
+    projects = tracker.read_projects()
+    filled = [p for p in projects if p.interested and not p.prd_prompt]
+    for project in filled:
+        project.prd_prompt = outreach.project_prd_prompt(project, profile)
+    if filled:
+        tracker.write_projects(projects)
+    return filled

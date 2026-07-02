@@ -6,8 +6,22 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 
 from relay.models import Profile
+
+
+def check_box(path: Path, sheet: str, key_header: str, key_value: str,
+              bool_header: str) -> None:
+    """Simulate the human ticking a checkbox in Excel: set the boolean cell to TRUE."""
+    wb = load_workbook(path)
+    ws = wb[sheet]
+    headers = [c.value for c in ws[1]]
+    key_col, bool_col = headers.index(key_header) + 1, headers.index(bool_header) + 1
+    for row in range(2, ws.max_row + 1):
+        if str(ws.cell(row=row, column=key_col).value) == key_value:
+            ws.cell(row=row, column=bool_col, value=True)
+    wb.save(path)
 
 
 @pytest.fixture(autouse=True)

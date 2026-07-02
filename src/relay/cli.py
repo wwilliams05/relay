@@ -191,6 +191,92 @@ def ui() -> None:
 
 
 @app.command()
+def log(
+    name: str = typer.Argument(..., help="Contact name (or a unique part of it)"),
+    responded: Optional[bool] = typer.Option(
+        None, "--responded/--no-responded", help="Did they reply?"),
+    notes: Optional[str] = typer.Option(None, "--notes", "-m", help="Tight chat summary (appends)"),
+    next_step: Optional[str] = typer.Option(None, "--next-step", help="Concrete next step"),
+    messaged: Optional[str] = typer.Option(
+        None, "--messaged", help="Date you messaged them: YYYY-MM-DD or 'today'"),
+) -> None:
+    """N6: record a conversation outcome on a contact's row in the Contacts tab."""
+    messaged_date = None
+    if messaged:
+        from datetime import date as _date
+
+        try:
+            messaged_date = _date.today() if messaged.lower() == "today" \
+                else _date.fromisoformat(messaged)
+        except ValueError:
+            _die(ValueError(f"--messaged must be YYYY-MM-DD or 'today', got {messaged!r}"))
+    try:
+        contact = flow.log_chat(
+            name, responded=responded, notes=notes, next_step=next_step,
+            messaged_date=messaged_date)
+    except RuntimeError as err:
+        _die(err)
+        return
+    console.print(f"[green]Logged[/] — {contact.name} ({contact.company})")
+    console.print(f"  messaged:  {contact.messaged_date or ''}")
+    console.print(f"  responded: {'yes' if contact.responded else 'no'}")
+    console.print(f"  notes:     {contact.chat_notes or ''}")
+    console.print(f"  next step: {contact.next_step or ''}")
+
+
+@app.command()
+def projects() -> None:
+    """Show the Projects tab (N7)."""
+    try:
+        rows = get_tracker().read_projects()
+    except RuntimeError as err:
+        _die(err)
+        return
+    if not rows:
+        console.print("[yellow]No projects yet[/] — run [bold]/suggest-project[/] first.")
+        return
+    table = Table(title="Projects tab", show_lines=False)
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Company")
+    table.add_column("For")
+    table.add_column("Idea", overflow="fold")
+    table.add_column("Skills")
+    table.add_column("★", justify="center")
+    table.add_column("PRD", justify="center")
+    for i, p in enumerate(rows, 1):
+        table.add_row(
+            str(i), p.target_company, p.for_contact or "", p.project_idea,
+            ", ".join(p.skills_shown), "☑" if p.interested else "☐",
+            "✓" if p.prd_prompt else "",
+        )
+    console.print(table)
+    console.print("[dim]Tick [italic]interested[/] in the tracker, then run "
+                  "[bold]relay prd[/] to get the build prompt.[/]")
+
+
+@app.command()
+def prd() -> None:
+    """N7: compose the ready-to-build PRD prompt for every `interested` project."""
+    prof = _load_profile_or_warn()
+    try:
+        filled = flow.fill_prd_prompts(prof)
+    except RuntimeError as err:
+        _die(err)
+        return
+    if not filled:
+        console.print(
+            "[yellow]Nothing waiting[/] — tick [italic]interested[/] on a project in "
+            "the tracker first (or every interested project already has its prompt).")
+        return
+    for p in filled:
+        console.print(f"\n[bold green]{p.project_idea}[/] — {p.target_company}")
+        console.print(p.prd_prompt)
+    console.print(
+        f"\n[green]{len(filled)} PRD prompt(s) saved[/] to the Projects tab. "
+        "[bold]Gate:[/] you pick what to build; paste a prompt into an LLM to start.")
+
+
+@app.command()
 def draft() -> None:
     """N5: create rule-checked outreach drafts for every checked contact. Never sends."""
     prof = _load_profile_or_warn()

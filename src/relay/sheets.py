@@ -240,6 +240,13 @@ def contact_key(c: Contact | dict[str, Any]) -> str:
     return f"nc::{_cell_str(get('name')).lower()}::{_cell_str(get('company')).lower()}"
 
 
+def project_key(p: Project | dict[str, Any]) -> str:
+    """Stable identity for a project idea: company + the idea text."""
+    get = p.get if isinstance(p, dict) else lambda k: getattr(p, k, None)
+    return (f"{_cell_str(get('target_company')).lower()}"
+            f"::{_cell_str(get('project_idea')).lower()}")
+
+
 class LocalXlsxTracker:
     """openpyxl-backed tracker. One workbook, one sheet per model tab."""
 
@@ -371,10 +378,20 @@ class LocalXlsxTracker:
 
     # -- Projects -------------------------------------------------------------
     def write_projects(self, projects: list[Project]) -> None:
-        rows = self._read_rows("Projects", PROJECT_COLUMNS)
-        rows.extend(project_to_row(p) for p in projects)
+        """Upsert by project_key: re-suggesting is safe — the human `interested` box
+        survives, and an existing prd_prompt is never clobbered by an empty one."""
+        existing = {project_key(r): r for r in self._read_rows("Projects", PROJECT_COLUMNS)}
+        merged: dict[str, dict[str, Any]] = dict(existing)
+        for p in projects:
+            k = project_key(p)
+            row = project_to_row(p)
+            if k in existing:
+                row["interested"] = existing[k].get("interested", row["interested"])
+                if not _cell_str(row.get("prd_prompt")):
+                    row["prd_prompt"] = existing[k].get("prd_prompt", "")
+            merged[k] = row
         wb = self._load()
-        self._write_rows(wb, "Projects", PROJECT_COLUMNS, rows)
+        self._write_rows(wb, "Projects", PROJECT_COLUMNS, list(merged.values()))
         self._save(wb)
 
     def read_projects(self) -> list[Project]:

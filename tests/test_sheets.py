@@ -4,25 +4,12 @@ from __future__ import annotations
 
 import zipfile
 from datetime import date
-from pathlib import Path
 
-from openpyxl import load_workbook
+from conftest import check_box as _check_box
 
 from relay import config
 from relay.models import Contact, EmailStatus, Job, Why
 from relay.sheets import LocalXlsxTracker, contact_key, job_key
-
-
-def _check_box(path: Path, sheet: str, key_header: str, key_value: str, bool_header: str) -> None:
-    """Simulate the human ticking a checkbox in Excel: set the boolean cell to TRUE."""
-    wb = load_workbook(path)
-    ws = wb[sheet]
-    headers = [c.value for c in ws[1]]
-    key_col, bool_col = headers.index(key_header) + 1, headers.index(bool_header) + 1
-    for row in range(2, ws.max_row + 1):
-        if str(ws.cell(row=row, column=key_col).value) == key_value:
-            ws.cell(row=row, column=bool_col, value=True)
-    wb.save(path)
 
 
 def _contact(**overrides) -> Contact:

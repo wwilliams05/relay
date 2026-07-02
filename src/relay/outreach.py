@@ -6,7 +6,7 @@ references this spec; keeping it in code means the rules live in exactly one pla
 
 from __future__ import annotations
 
-from .models import Contact, Profile, Why
+from .models import Contact, Profile, Project, Why
 
 OUTREACH_RULES = """\
 HARD RULES for every outreach draft:
@@ -40,6 +40,31 @@ def draft_prompt(contact_summary: str, profile_summary: str) -> str:
         f"ABOUT THE RECIPIENT:\n{contact_summary}\n\n"
         "Write a short cold email. Open with the recipient-specific hook. "
         "Output only the draft body — no subject line commentary, no explanation."
+    )
+
+
+def project_prd_prompt(project: Project, profile: Profile) -> str:
+    """Compose the ready-to-build PRD prompt for a checked project idea (N7).
+
+    Self-contained and weekend-scoped by design — the user pastes it into an LLM
+    as-is to start vibe-coding.
+    """
+    audience = (f"{project.for_contact} at {project.target_company}"
+                if project.for_contact else f"a contact at {project.target_company}")
+    skills = ", ".join(project.skills_shown) or "the core skills for this role"
+    return (
+        "You are helping me build a small portfolio project in one weekend. "
+        "Write a tight PRD, then an implementation plan I can follow.\n\n"
+        f"PROJECT: {project.project_idea}\n"
+        f"AUDIENCE: built to show {audience} concrete work adjacent to their team.\n"
+        f"SKILLS TO SHOWCASE: {skills}\n"
+        f"MY THROUGHLINE: {profile.anchor_framing} — the project should reinforce it.\n\n"
+        "Constraints:\n"
+        "- Scope to ONE weekend: a single clear demo, no auth, no deployment complexity.\n"
+        "- Use realistic public or synthetic data and say where it comes from.\n"
+        "- At most 3 features; cutting scope beats adding it.\n\n"
+        "Output the PRD only: goals, non-goals, data, features (max 3), a demo script "
+        "(what I walk through in a coffee chat), build steps, and one stretch goal."
     )
 
 
