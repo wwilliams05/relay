@@ -17,7 +17,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import config, flow, resume
+from . import config, flow, gmail, resume
 
 
 class RelayApp:
@@ -82,9 +82,9 @@ class RelayApp:
         self.btn_open = ttk.Button(actions, text="Open spreadsheet", command=self.open_sheet)
         self.btn_open.pack(side="left", padx=4)
 
-        draft = ttk.Button(frm, text="③  Draft outreach for checked contacts  (coming in M2)",
-                           state="disabled")
-        draft.grid(row=6, column=0, columnspan=3, sticky="w", padx=14, pady=(2, 6))
+        self.btn_draft = ttk.Button(
+            frm, text="③  Draft outreach for checked contacts", command=self.run_draft)
+        self.btn_draft.grid(row=6, column=0, columnspan=3, sticky="w", padx=14, pady=(2, 6))
 
         # Status
         self.status = tk.StringVar(value="Ready.")
@@ -121,6 +121,7 @@ class RelayApp:
         self.btn_discover.config(state=state)
         self.btn_people.config(state=state)
         self.btn_save.config(state=state)
+        self.btn_draft.config(state=state)
         if busy:
             self.progress.start(12)
         else:
@@ -225,6 +226,47 @@ class RelayApp:
                 f"Found {len(contacts)} contacts at {', '.join(sorted(set(companies)))} "
                 "→ Contacts tab. Check ‘want_to_message’.")
             self.open_sheet()
+
+        self._run_bg(work, done)
+
+
+    # -- step 3: draft outreach for checked contacts ---------------------------
+    def run_draft(self) -> None:
+        if self._busy:
+            return
+        self._set_busy(True, f"Drafting outreach (mode: {config.gmail_mode()})… "
+                             "Relay only drafts; you send.")
+
+        def work():
+            from .models import Profile
+            return flow.draft_outreach(resume.load_profile() or Profile(name="(unknown)"))
+
+        def done(run, err):
+            self._set_busy(False)
+            if err:
+                self.status.set("Drafting failed.")
+                messagebox.showerror("Relay", f"Drafting failed:\n{err}")
+                return
+            if run.nothing_checked:
+                self.status.set("No contacts checked — tick ‘want_to_message’ first.")
+                messagebox.showinfo("Relay", "Check ‘want_to_message’ on some contacts first.")
+                return
+            bits = []
+            if run.created:
+                bits.append(f"{len(run.created)} draft(s) → {gmail.drafts_location()}")
+            if run.already_drafted:
+                bits.append(f"{run.already_drafted} already drafted")
+            if run.skipped_no_email:
+                bits.append(f"{len(run.skipped_no_email)} without an email")
+            if run.skipped_referrals:
+                bits.append(f"{len(run.skipped_referrals)} uncleared referral(s) skipped")
+                names = "\n".join(f"• {c.name}" for c in run.skipped_referrals)
+                messagebox.showwarning(
+                    "Relay — referrals need clearing",
+                    "Skipped (never name an uncleared referrer):\n"
+                    f"{names}\n\nTick ‘referral_cleared’ in the tracker once they've "
+                    "confirmed, then draft again.")
+            self.status.set("; ".join(bits) + ". Edit + send each draft yourself.")
 
         self._run_bg(work, done)
 

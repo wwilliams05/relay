@@ -7,10 +7,11 @@ progress. All persistence goes through the active Tracker.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import discover, pipeline, resume
-from .models import Contact, Job, Profile, Target
+from . import discover, gmail, outreach, pipeline, resume
+from .models import Contact, Job, Profile, Target, Why
 from .sheets import get_tracker
 
 
@@ -68,3 +69,52 @@ def find_people_for_checked_jobs(profile: Profile) -> tuple[list[Contact], list[
     if contacts:
         tracker.write_contacts(contacts)
     return contacts, companies
+
+
+@dataclass
+class DraftRun:
+    """What one N5 pass did, so the CLI/GUI can report it faithfully."""
+
+    created: list[tuple[Contact, str]] = field(default_factory=list)  # (contact, draft ref)
+    skipped_referrals: list[Contact] = field(default_factory=list)  # uncleared — flagged
+    skipped_no_email: list[Contact] = field(default_factory=list)
+    rule_violations: list[tuple[Contact, str]] = field(default_factory=list)
+    already_drafted: int = 0
+
+    @property
+    def nothing_checked(self) -> bool:
+        return not (self.created or self.skipped_referrals or self.skipped_no_email
+                    or self.rule_violations or self.already_drafted)
+
+
+def draft_outreach(profile: Profile) -> DraftRun:
+    """N5 for every contact the user checked `want_to_message` on.
+
+    Human-gated on both ends: only checked contacts are drafted, and every draft is
+    created as a draft (Gmail or local .eml) — never sent. Uncleared referrals are
+    skipped and flagged, never named. Sets `draft_created` per contact on success.
+    """
+    tracker = get_tracker()
+    run = DraftRun()
+    for contact in tracker.read_contacts():
+        if not contact.want_to_message:
+            continue
+        if contact.draft_created:
+            run.already_drafted += 1
+            continue
+        if contact.why == Why.REFERRAL and not contact.referral_cleared:
+            run.skipped_referrals.append(contact)
+            continue
+        if not contact.email:
+            run.skipped_no_email.append(contact)
+            continue
+        try:
+            subject, body = outreach.build_draft(profile, contact)
+        except ValueError as exc:
+            run.rule_violations.append((contact, str(exc)))
+            continue
+        ref = gmail.create_draft(contact, subject, body)
+        contact.draft_created = True
+        tracker.update_contact(contact)
+        run.created.append((contact, ref))
+    return run

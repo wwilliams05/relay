@@ -19,6 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Only needed for RELAY_GMAIL_MODE=live (real Gmail drafts); fixture mode is dep-free.
+gmail = ["google-api-python-client>=2.130", "google-auth-oauthlib>=1.2"]
 
 [project.scripts]
 relay = "relay.cli:app"

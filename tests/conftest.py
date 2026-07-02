@@ -19,6 +19,7 @@ def hermetic_env(monkeypatch, tmp_path: Path) -> Path:
     monkeypatch.setenv("RELAY_GMAIL_MODE", "fixture")
     monkeypatch.setenv("RELAY_TRACKER_BACKEND", "xlsx")
     monkeypatch.setenv("RELAY_WORKBOOK_PATH", str(tmp_path / "relay.xlsx"))
+    monkeypatch.setenv("RELAY_PROFILE_PATH", str(tmp_path / "profile.json"))
     monkeypatch.setenv("RELAY_DRAFTS_DIR", str(tmp_path / "drafts"))
     monkeypatch.setenv("RELAY_JOBS_MIN_FIT", "20")
     monkeypatch.setenv("RELAY_XLSX_CHECKBOXES", "0")

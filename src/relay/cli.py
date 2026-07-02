@@ -192,8 +192,40 @@ def ui() -> None:
 
 @app.command()
 def draft() -> None:
-    """N5 (M2): generate Gmail drafts for every checked (want_to_message) contact."""
-    console.print("[yellow]N5 lands in M2[/] — draft generation not wired yet.")
+    """N5: create rule-checked outreach drafts for every checked contact. Never sends."""
+    prof = _load_profile_or_warn()
+    console.print(
+        f"[dim]Gmail mode: {config.gmail_mode()} · tracker: {config.tracker_backend()}[/]")
+    try:
+        run = flow.draft_outreach(prof)
+    except RuntimeError as err:
+        _die(err)
+        return
+
+    if run.nothing_checked:
+        console.print(
+            "[yellow]No contacts checked[/] — tick [italic]want_to_message[/] in the "
+            "Contacts tab first (run [bold]relay find-checked[/] to populate it).")
+        return
+    for contact, ref in run.created:
+        console.print(f"  [green]drafted[/] {contact.name} <{contact.email}> → {ref}")
+    for contact in run.skipped_referrals:
+        console.print(
+            f"  [red]skipped[/] {contact.name} — uncleared referral. Confirm they're OK "
+            "being named, tick [italic]referral_cleared[/], and re-run.")
+    for contact in run.skipped_no_email:
+        console.print(f"  [yellow]skipped[/] {contact.name} — no email (enrich first).")
+    for contact, why in run.rule_violations:
+        console.print(f"  [red]skipped[/] {contact.name} — {why}")
+    if run.already_drafted:
+        console.print(f"  [dim]{run.already_drafted} already drafted — left untouched.[/]")
+
+    from .gmail import drafts_location
+
+    if run.created:
+        console.print(
+            f"\n[green]{len(run.created)} draft(s) created[/] in {drafts_location()}. "
+            "[bold]Gate:[/] edit and send each one yourself — Relay never sends.")
 
 
 def _print_jobs(jobs: list[Job], title: str) -> None:
