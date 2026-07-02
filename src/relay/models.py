@@ -31,6 +31,9 @@ class Profile(BaseModel):
     major: str = ""  # field of study, e.g. "Business Administration"; weights job fit
     roles: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
+    # Preferred work locations (e.g. ["Los Angeles", "New York", "Remote"]); jobs in
+    # these rank higher and jobs clearly elsewhere are deprioritized in discovery.
+    preferred_locations: list[str] = Field(default_factory=list)
     anchor_framing: str = "business operations process improvement"
     # Free-text preferences the user typed in the launcher that aren't on the resume
     # (e.g. "Fall 2026 Co-Op, Product Management or BizOps"). Drives job discovery.

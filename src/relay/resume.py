@@ -20,6 +20,16 @@ from .models import Profile
 # Lines mentioning one of these are treated as a school for the heuristic pass.
 _SCHOOL_HINTS = ("university", "college", "institute of technology", "school of")
 
+# Other section headers — used to bound the Education block so a "university" mention
+# in an experience/research bullet isn't mistaken for a school the user attended.
+_OTHER_SECTIONS = (
+    "experience", "work experience", "professional experience", "employment",
+    "projects", "technical projects", "skills", "technical skills", "leadership",
+    "activities", "leadership & activities", "awards", "honors", "certifications",
+    "volunteer", "interests", "summary", "objective", "publications", "research",
+    "extracurricular", "involvement",
+)
+
 # Degree line like "B.S. in Business Administration" / "Bachelor of Arts in Economics".
 _DEGREE_RE = re.compile(
     r"\b(?:B\.?S\.?|B\.?A\.?|B\.?B\.?A\.?|Bachelor(?:'s)?(?:\s+of\s+[A-Za-z]+)?)\b"
@@ -54,14 +64,40 @@ def _guess_name(text: str) -> str:
     return "(unknown)"
 
 
+def _education_lines(text: str) -> list[str]:
+    """The lines under an 'Education' heading, up to the next section — so school
+    detection ignores 'university' mentions elsewhere (e.g. research bullets)."""
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        s = line.strip().rstrip(":").lower()
+        if s == "education" or s.startswith("education "):
+            start = i + 1
+            break
+    if start is None:
+        return lines  # no explicit section — fall back to scanning everything
+    block: list[str] = []
+    for line in lines[start:]:
+        s = line.strip().rstrip(":").lower()
+        is_header = s in _OTHER_SECTIONS or (line.strip().isupper() and 2 < len(line.strip()) < 30)
+        if is_header:
+            break
+        block.append(line)
+    return block
+
+
 def _guess_schools(text: str) -> list[str]:
     schools: list[str] = []
-    for line in text.splitlines():
+    for line in _education_lines(text):
         clean = line.strip()
         low = clean.lower()
+        # A real school line names an institution; skip prose bullets that merely
+        # mention a university (those are long or start with a bullet glyph).
+        if clean[:1] in "•▪◦-*":
+            continue
         if any(h in low for h in _SCHOOL_HINTS):
-            # Trim trailing dates / GPA noise so the school name is clean.
-            name = re.split(r"\s{2,}|\s[-–—|]\s|\d{4}", clean)[0].strip(" .,-–—|")
+            # Trim trailing location / dates / GPA noise so the school name is clean.
+            name = re.split(r"\s{2,}|\s[-–—|]\s|,|\d{4}", clean)[0].strip(" .,-–—|")
             if name and name not in schools:
                 schools.append(name)
     return schools

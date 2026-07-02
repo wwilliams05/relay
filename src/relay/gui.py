@@ -17,7 +17,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import config, flow
+from . import config, flow, resume
 
 
 class RelayApp:
@@ -48,16 +48,29 @@ class RelayApp:
         self.resume_label = ttk.Label(frm, text="(using saved profile if none)", foreground="#888")
         self.resume_label.grid(row=2, column=2, sticky="w", **pad)
 
+        # Prefill from the saved profile so the window reflects what's stored.
+        saved = resume.load_profile()
+
         # Notes
         ttk.Label(frm, text="Looking for:").grid(row=3, column=0, sticky="w", **pad)
         self.notes = ttk.Entry(frm)
-        self.notes.insert(0, "Fall 2026 Co-Op, Product Management or BizOps")
+        self.notes.insert(0, (saved.extra_context if saved and saved.extra_context
+                              else "Fall 2026 Co-Op, Product Management or BizOps"))
         self.notes.grid(row=3, column=1, columnspan=2, sticky="ew", **pad)
         self.notes.bind("<Return>", lambda _e: self.run_discover())
 
+        # Preferred locations
+        ttk.Label(frm, text="Locations:").grid(row=4, column=0, sticky="w", **pad)
+        self.locations = ttk.Entry(frm)
+        self.locations.insert(0, (", ".join(saved.preferred_locations) if saved and
+                                  saved.preferred_locations
+                                  else "Los Angeles, New York, Remote"))
+        self.locations.grid(row=4, column=1, columnspan=2, sticky="ew", **pad)
+        self.locations.bind("<Return>", lambda _e: self.run_discover())
+
         # Actions
         actions = ttk.Frame(frm)
-        actions.grid(row=4, column=0, columnspan=3, sticky="w", padx=10, pady=(12, 4))
+        actions.grid(row=5, column=0, columnspan=3, sticky="w", padx=10, pady=(12, 4))
         self.btn_discover = ttk.Button(
             actions, text="①  Find jobs  ▶", command=self.run_discover)
         self.btn_discover.pack(side="left", padx=4)
@@ -71,15 +84,15 @@ class RelayApp:
 
         draft = ttk.Button(frm, text="③  Draft outreach for checked contacts  (coming in M2)",
                            state="disabled")
-        draft.grid(row=5, column=0, columnspan=3, sticky="w", padx=14, pady=(2, 6))
+        draft.grid(row=6, column=0, columnspan=3, sticky="w", padx=14, pady=(2, 6))
 
         # Status
         self.status = tk.StringVar(value="Ready.")
-        ttk.Separator(frm).grid(row=6, column=0, columnspan=3, sticky="ew", padx=10, pady=4)
+        ttk.Separator(frm).grid(row=7, column=0, columnspan=3, sticky="ew", padx=10, pady=4)
         ttk.Label(frm, textvariable=self.status, foreground="#333").grid(
-            row=7, column=0, columnspan=3, sticky="w", padx=14, pady=(0, 4))
+            row=8, column=0, columnspan=3, sticky="w", padx=14, pady=(0, 4))
         self.progress = ttk.Progressbar(frm, mode="indeterminate")
-        self.progress.grid(row=8, column=0, columnspan=3, sticky="ew", padx=14, pady=(0, 12))
+        self.progress.grid(row=9, column=0, columnspan=3, sticky="ew", padx=14, pady=(0, 12))
 
         self._poll_results()  # start the main-thread result pump
 
@@ -147,11 +160,11 @@ class RelayApp:
         """Persist the résumé + 'Looking for' text to profile.json without discovering."""
         if self._busy:
             return
-        notes = self.notes.get()
+        notes, locations = self.notes.get(), self.locations.get()
         self._set_busy(True, "Saving your résumé + preferences…")
 
         def work():
-            return flow.build_profile(self.resume_path, notes)
+            return flow.build_profile(self.resume_path, notes, locations)
 
         def done(profile, err):
             self._set_busy(False)
@@ -167,11 +180,11 @@ class RelayApp:
     def run_discover(self) -> None:
         if self._busy:
             return
-        notes = self.notes.get()
+        notes, locations = self.notes.get(), self.locations.get()
         self._set_busy(True, f"Discovering jobs (mode: {config.jobs_mode()})… this can take a bit.")
 
         def work():
-            profile = flow.build_profile(self.resume_path, notes)
+            profile = flow.build_profile(self.resume_path, notes, locations)
             return flow.discover_jobs(profile)
 
         def done(jobs, err):

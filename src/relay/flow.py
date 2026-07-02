@@ -6,6 +6,7 @@ progress. All persistence goes through the active Tracker.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from . import discover, pipeline, resume
@@ -13,17 +14,29 @@ from .models import Contact, Job, Profile, Target
 from .sheets import get_tracker
 
 
-def build_profile(resume_pdf: str | Path | None, notes: str) -> Profile:
-    """N0: parse the resume (if given) and attach the launcher's free-text notes.
+def parse_locations(raw: str) -> list[str]:
+    """Split a free-text locations field on commas/slashes into clean entries."""
+    return [p.strip() for p in re.split(r"[,/]", raw) if p.strip()]
 
-    Empty notes preserve the previously saved preferences, so a no-argument run (e.g.
-    the scheduled `relay discover`) keeps using them instead of wiping extra_context."""
+
+def build_profile(
+    resume_pdf: str | Path | None, notes: str, locations: str | None = None
+) -> Profile:
+    """N0: parse the resume (if given) and attach the launcher's free-text notes +
+    preferred locations.
+
+    Empty notes/locations preserve the previously saved values, so a no-argument run
+    (e.g. the scheduled `relay discover`) keeps using them."""
     if resume_pdf:
         profile = resume.parse_resume(resume_pdf)
     else:
         profile = resume.load_profile() or Profile(name="(unknown)")
     if notes.strip():
         profile.extra_context = notes.strip()
+    if locations is not None:
+        locs = parse_locations(locations)
+        if locs:
+            profile.preferred_locations = locs
     resume.save_profile(profile)
     return profile
 

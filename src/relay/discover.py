@@ -84,6 +84,45 @@ _BUSINESS_MAJOR_WORDS = (
     "operations", "supply chain", "commerce", "accounting",
 )
 
+# Location strings too vague to count as "not one of my cities" — don't penalize these.
+_AMBIGUOUS_LOCATIONS = (
+    "united states", "usa", "u.s.", "multiple", "various", "nationwide", "flexible",
+)
+
+# Common ways a preferred city shows up in a posting's location string.
+_LOCATION_ALIASES: dict[str, tuple[str, ...]] = {
+    "los angeles": ("los angeles", "l.a."),
+    "san francisco": ("san francisco", "bay area", "s.f."),
+    "new york": ("new york", "nyc", "manhattan", "brooklyn"),
+    "st. louis": ("st. louis", "st louis", "saint louis"),
+    "st louis": ("st. louis", "st louis", "saint louis"),
+    "saint louis": ("st. louis", "st louis", "saint louis"),
+    "remote": ("remote", "work from home", "wfh", "anywhere"),
+    "hybrid": ("hybrid",),
+}
+
+
+def _location_variants(pref: str) -> tuple[str, ...]:
+    p = pref.lower().strip()
+    return _LOCATION_ALIASES.get(p, (p,))
+
+
+def _location_fit(job: Job, prefs: list[str]) -> tuple[int, str | None]:
+    """Boost jobs in a preferred location; deprioritize ones clearly elsewhere. Unknown
+    or vague locations are left neutral so we don't punish missing data."""
+    if not prefs:
+        return 0, None
+    loc = (job.location or "").strip().lower()
+    if not loc:
+        return 0, None
+    for pref in prefs:
+        for variant in _location_variants(pref):
+            if variant and variant in loc:
+                return 12, f"in {pref}"
+    if any(a in loc for a in _AMBIGUOUS_LOCATIONS):
+        return 0, None
+    return -20, "outside preferred locations"
+
 
 def derive_search_terms(profile: Profile) -> list[str]:
     """Build scrape terms from the notes (preferred) and resume roles (fallback)."""
@@ -192,6 +231,12 @@ def score_job(job: Job, profile: Profile) -> tuple[int, str]:
             score -= 6
             reasons.append("stale posting")
 
+    # 7) Location — favor your preferred cities / remote.
+    loc_delta, loc_reason = _location_fit(job, profile.preferred_locations)
+    score += loc_delta
+    if loc_reason:
+        reasons.append(loc_reason)
+
     score = max(0, min(100, score))
     return score, "; ".join(reasons) or "internship match"
 
@@ -216,4 +261,16 @@ def run_discovery(profile: Profile) -> list[Job]:
         if job.fit_score >= floor:  # drop engineering/off-field noise from big boards
             ranked.append(job)
     ranked.sort(key=lambda j: j.fit_score, reverse=True)
-    return ranked
+
+    # Collapse near-duplicates: the same role+location posted under different URLs
+    # (or by two sources). Highest-scored copy is first after the sort, so it wins.
+    final: list[Job] = []
+    seen_role: set[tuple[str, str, str]] = set()
+    for job in ranked:
+        key = (job.company.strip().lower(), (job.title or "").strip().lower(),
+               (job.location or "").strip().lower())
+        if key in seen_role:
+            continue
+        seen_role.add(key)
+        final.append(job)
+    return final

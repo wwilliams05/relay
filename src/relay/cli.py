@@ -136,12 +136,13 @@ def contacts() -> None:
 @app.command()
 def discover(
     notes: str = typer.Option("", "--notes", "-n", help="Preferences not on your resume, e.g. 'Fall 2026 Co-Op, PM or BizOps'"),
+    locations: Optional[str] = typer.Option(None, "--locations", "-l", help="Preferred locations, e.g. 'Los Angeles, New York, Remote'"),
     resume_pdf: Optional[str] = typer.Option(None, "--resume", help="Resume PDF (else uses saved profile)"),
 ) -> None:
     """N-1: scrape job boards for internships matching your resume + notes -> Jobs tab."""
     console.print(f"[dim]Jobs mode: {config.jobs_mode()} · tracker: {config.tracker_backend()}[/]")
     try:
-        profile = flow.build_profile(resume_pdf, notes)
+        profile = flow.build_profile(resume_pdf, notes, locations)
         jobs = flow.discover_jobs(profile)
     except RuntimeError as err:
         _die(err)
