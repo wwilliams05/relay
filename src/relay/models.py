@@ -50,6 +50,9 @@ class Target(BaseModel):
     status: str = "active"
     # Titles that count as "similar role" for people discovery (N2).
     similar_titles: list[str] = Field(default_factory=list)
+    # Company website domain (e.g. "spacex.com") — scopes Apollo people search to the
+    # right org. Sourced from targets.yml; plumbing only, not written to the tab.
+    domain: str | None = None
 
 
 class Contact(BaseModel):

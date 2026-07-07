@@ -4,87 +4,94 @@
 # its public JSON API — free, no auth, structured, and (unlike scraping Indeed/LinkedIn)
 # never rate-limited or blocked. See src/relay/jobs.py.
 #
-# Each entry needs three fields:
+# Fields per entry:
 #   company  — display name written to the Jobs tab
-#   provider — one of: greenhouse | lever | ashby
-#   token    — the board slug in the ATS URL. Find it from the company's careers page:
-#                greenhouse -> boards.greenhouse.io/<token>   (or job-boards.greenhouse.io/<token>)
+#   provider — one of: greenhouse | lever | ashby | workday | amazon
+#   token    — the board slug in the ATS URL (greenhouse/lever/ashby). Find it on the
+#              company's careers page:
+#                greenhouse -> boards.greenhouse.io/<token>
 #                ashby      -> jobs.ashbyhq.com/<token>
 #                lever      -> jobs.lever.co/<token>
+#   domain   — the company's website domain; scopes Apollo people search (N2) to the
+#              right org when you run find-people for a pursued job. Optional but
+#              strongly recommended.
+#   workday entries use tenant + dc + site instead of token (see that section).
 #
 # Only internship / co-op titles are kept, and fit-scoring against your résumé + notes
 # ranks them (business/ops/PM roles rise; off-field engineering/clinical roles sink and
-# are dropped below RELAY_JOBS_MIN_FIT). Edit freely — this file, if present, replaces
-# the built-in defaults. Delete it to fall back to those defaults.
+# are dropped below RELAY_JOBS_MIN_FIT). Non-US locations are dropped by default
+# (RELAY_JOBS_US_ONLY=0 to disable). Edit freely — this file, if present, replaces the
+# built-in defaults. Delete it to fall back to those defaults.
 #
-# NOTE: big consulting/finance names (McKinsey, BCG, Bain, Accenture, Deloitte, Visa,
-# Mastercard) and some primes (Tesla) run their own/Workday career sites and are NOT
-# reachable via these ATS APIs — they can't be added here. All tokens below are verified.
+# NOT reachable here: Google/Meta/Apple/Microsoft run proprietary career sites without
+# a stable public JSON API (Google retired its v3 careers API). Amazon is the
+# exception — its careers site exposes /en/search.json, wired as provider: amazon.
 
 targets:
   # --- Fintech & payments ---
-  - { company: Stripe,     provider: greenhouse, token: stripe }
-  - { company: Coinbase,   provider: greenhouse, token: coinbase }
-  - { company: Block,      provider: greenhouse, token: block }
-  - { company: Brex,       provider: greenhouse, token: brex }
-  - { company: Affirm,     provider: greenhouse, token: affirm }
-  - { company: Robinhood,  provider: greenhouse, token: robinhood }
-  - { company: SoFi,       provider: greenhouse, token: sofi }
-  - { company: Marqeta,    provider: greenhouse, token: marqeta }
-  - { company: Chime,      provider: greenhouse, token: chime }
-  - { company: FanDuel,    provider: greenhouse, token: fanduel }
-  - { company: Carta,      provider: greenhouse, token: carta }
-  - { company: Ramp,       provider: ashby,      token: Ramp }
-  - { company: Mercury,    provider: ashby,      token: mercury }
+  - { company: Stripe,     provider: greenhouse, token: stripe,     domain: stripe.com }
+  - { company: Coinbase,   provider: greenhouse, token: coinbase,   domain: coinbase.com }
+  - { company: Block,      provider: greenhouse, token: block,      domain: block.xyz }
+  - { company: Brex,       provider: greenhouse, token: brex,       domain: brex.com }
+  - { company: Affirm,     provider: greenhouse, token: affirm,     domain: affirm.com }
+  - { company: Robinhood,  provider: greenhouse, token: robinhood,  domain: robinhood.com }
+  - { company: SoFi,       provider: greenhouse, token: sofi,       domain: sofi.com }
+  - { company: Marqeta,    provider: greenhouse, token: marqeta,    domain: marqeta.com }
+  - { company: Chime,      provider: greenhouse, token: chime,      domain: chime.com }
+  - { company: FanDuel,    provider: greenhouse, token: fanduel,    domain: fanduel.com }
+  - { company: Carta,      provider: greenhouse, token: carta,      domain: carta.com }
+  - { company: Ramp,       provider: ashby,      token: Ramp,       domain: ramp.com }
+  - { company: Mercury,    provider: ashby,      token: mercury,    domain: mercury.com }
 
   # --- Marketplaces & consumer ---
-  - { company: DoorDash,   provider: greenhouse, token: doordashusa }
-  - { company: Airbnb,     provider: greenhouse, token: airbnb }
-  - { company: Instacart,  provider: greenhouse, token: instacart }
-  - { company: Faire,      provider: greenhouse, token: faire }
-  - { company: Toast,      provider: greenhouse, token: toast }
-  - { company: Pinterest,  provider: greenhouse, token: pinterest }
-  - { company: Reddit,     provider: greenhouse, token: reddit }
-  - { company: Gopuff,     provider: lever,      token: gopuff }
-  - { company: Lyft,       provider: greenhouse, token: lyft }
-  - { company: Discord,    provider: greenhouse, token: discord }
-  - { company: Duolingo,   provider: greenhouse, token: duolingo }
-  - { company: Roblox,     provider: greenhouse, token: roblox }
-  - { company: Squarespace, provider: greenhouse, token: squarespace }
-  - { company: Peloton,    provider: greenhouse, token: peloton }
-  - { company: Epic Games, provider: greenhouse, token: epicgames }
-  - { company: Spotify,    provider: lever,      token: spotify }
+  - { company: DoorDash,   provider: greenhouse, token: doordashusa, domain: doordash.com }
+  - { company: Airbnb,     provider: greenhouse, token: airbnb,     domain: airbnb.com }
+  - { company: Instacart,  provider: greenhouse, token: instacart,  domain: instacart.com }
+  - { company: Faire,      provider: greenhouse, token: faire,      domain: faire.com }
+  - { company: Toast,      provider: greenhouse, token: toast,      domain: toasttab.com }
+  - { company: Pinterest,  provider: greenhouse, token: pinterest,  domain: pinterest.com }
+  - { company: Reddit,     provider: greenhouse, token: reddit,     domain: redditinc.com }
+  - { company: Gopuff,     provider: lever,      token: gopuff,     domain: gopuff.com }
+  - { company: Lyft,       provider: greenhouse, token: lyft,       domain: lyft.com }
+  - { company: Discord,    provider: greenhouse, token: discord,    domain: discord.com }
+  - { company: Duolingo,   provider: greenhouse, token: duolingo,   domain: duolingo.com }
+  - { company: Roblox,     provider: greenhouse, token: roblox,     domain: roblox.com }
+  - { company: Squarespace, provider: greenhouse, token: squarespace, domain: squarespace.com }
+  - { company: Peloton,    provider: greenhouse, token: peloton,    domain: onepeloton.com }
+  - { company: Epic Games, provider: greenhouse, token: epicgames,  domain: epicgames.com }
+  - { company: Spotify,    provider: lever,      token: spotify,    domain: spotify.com }
+  - { company: Amazon,     provider: amazon,                        domain: amazon.com }
 
   # --- Enterprise SaaS & data ---
-  - { company: Databricks, provider: greenhouse, token: databricks }
-  - { company: MongoDB,    provider: greenhouse, token: mongodb }
-  - { company: Cloudflare, provider: greenhouse, token: cloudflare }
-  - { company: HubSpot,    provider: greenhouse, token: hubspot }
-  - { company: Asana,      provider: greenhouse, token: asana }
-  - { company: Figma,      provider: greenhouse, token: figma }
-  - { company: Samsara,    provider: greenhouse, token: samsara }
-  - { company: "Scale AI", provider: greenhouse, token: scaleai }
-  - { company: Flexport,   provider: greenhouse, token: flexport }
-  - { company: Gusto,      provider: greenhouse, token: gusto }
-  - { company: Checkr,     provider: greenhouse, token: checkr }
-  - { company: Datadog,    provider: greenhouse, token: datadog }
-  - { company: Verkada,    provider: greenhouse, token: verkada }
-  - { company: Notion,     provider: ashby,      token: notion }
-  - { company: Zip,        provider: ashby,      token: zip }
-  - { company: Deel,       provider: ashby,      token: deel }
-  - { company: Vanta,      provider: ashby,      token: vanta }
-  - { company: Linear,     provider: ashby,      token: Linear }
+  - { company: Databricks, provider: greenhouse, token: databricks, domain: databricks.com }
+  - { company: MongoDB,    provider: greenhouse, token: mongodb,    domain: mongodb.com }
+  - { company: Cloudflare, provider: greenhouse, token: cloudflare, domain: cloudflare.com }
+  - { company: HubSpot,    provider: greenhouse, token: hubspot,    domain: hubspot.com }
+  - { company: Asana,      provider: greenhouse, token: asana,      domain: asana.com }
+  - { company: Figma,      provider: greenhouse, token: figma,      domain: figma.com }
+  - { company: Samsara,    provider: greenhouse, token: samsara,    domain: samsara.com }
+  - { company: "Scale AI", provider: greenhouse, token: scaleai,    domain: scale.com }
+  - { company: Flexport,   provider: greenhouse, token: flexport,   domain: flexport.com }
+  - { company: Gusto,      provider: greenhouse, token: gusto,      domain: gusto.com }
+  - { company: Checkr,     provider: greenhouse, token: checkr,     domain: checkr.com }
+  - { company: Datadog,    provider: greenhouse, token: datadog,    domain: datadoghq.com }
+  - { company: Verkada,    provider: greenhouse, token: verkada,    domain: verkada.com }
+  - { company: Notion,     provider: ashby,      token: notion,     domain: notion.so }
+  - { company: Zip,        provider: ashby,      token: zip,        domain: ziphq.com }
+  - { company: Deel,       provider: ashby,      token: deel,       domain: deel.com }
+  - { company: Vanta,      provider: ashby,      token: vanta,      domain: vanta.com }
+  - { company: Linear,     provider: ashby,      token: Linear,     domain: linear.app }
 
   # --- Defense, space & deep tech ---
-  - { company: SpaceX,     provider: greenhouse, token: spacex }
-  - { company: Anduril,    provider: greenhouse, token: andurilindustries }
-  - { company: Palantir,   provider: lever,      token: palantir }
-  - { company: Waymo,      provider: greenhouse, token: waymo }
+  - { company: SpaceX,     provider: greenhouse, token: spacex,     domain: spacex.com }
+  - { company: Anduril,    provider: greenhouse, token: andurilindustries, domain: anduril.com }
+  - { company: Palantir,   provider: lever,      token: palantir,   domain: palantir.com }
+  - { company: Waymo,      provider: greenhouse, token: waymo,      domain: waymo.com }
 
   # --- AI ---
-  - { company: OpenAI,     provider: ashby,      token: openai }
-  - { company: Anthropic,  provider: greenhouse, token: anthropic }
-  - { company: Perplexity, provider: ashby,      token: perplexity }
+  - { company: OpenAI,     provider: ashby,      token: openai,     domain: openai.com }
+  - { company: Anthropic,  provider: greenhouse, token: anthropic,  domain: anthropic.com }
+  - { company: Perplexity, provider: ashby,      token: perplexity, domain: perplexity.ai }
 
   # --- Workday companies (banking / consulting / payments / enterprise) ---
   # These use Workday's public cxs JSON API. Fields differ: tenant + dc (datacenter,
@@ -92,19 +99,19 @@ targets:
   # them in the careers URL: https://<tenant>.<dc>.myworkdayjobs.com/<locale>/<site>.
   # Internships appear seasonally (banks title them "Summer Analyst"); a 0-result
   # company here just has none open right now.
-  - { company: Accenture,      provider: workday, tenant: accenture,  dc: wd103, site: AccentureCareers }
-  - { company: Mastercard,     provider: workday, tenant: mastercard, dc: wd1,   site: CorporateCareers }
-  - { company: Capital One,    provider: workday, tenant: capitalone, dc: wd12,  site: Capital_One }
-  - { company: Morgan Stanley, provider: workday, tenant: ms,         dc: wd5,   site: External }
-  - { company: Wells Fargo,    provider: workday, tenant: wf,         dc: wd1,   site: WellsFargoJobs }
-  - { company: Citi,           provider: workday, tenant: citi,       dc: wd5,   site: "2" }
-  - { company: Gartner,        provider: workday, tenant: gartner,    dc: wd5,   site: EXT }
-  - { company: Fidelity,       provider: workday, tenant: fmr,        dc: wd1,   site: FidelityCareers }
-  - { company: PayPal,         provider: workday, tenant: paypal,     dc: wd1,   site: jobs }
-  - { company: Salesforce,     provider: workday, tenant: salesforce, dc: wd12,  site: External_Career_Site }
-  - { company: Adobe,          provider: workday, tenant: adobe,      dc: wd5,   site: external_experienced }
-  - { company: Nvidia,         provider: workday, tenant: nvidia,     dc: wd5,   site: NVIDIAExternalCareerSite }
-  - { company: BlackRock,      provider: workday, tenant: blackrock,  dc: wd1,   site: BlackRock_Professional }
-  - { company: Disney,         provider: workday, tenant: disney,     dc: wd5,   site: disneycareer }
-  - { company: Zillow,         provider: workday, tenant: zillow,     dc: wd5,   site: Zillow_Group_External }
-  - { company: Target,         provider: workday, tenant: target,     dc: wd5,   site: targetcareers }
+  - { company: Accenture,      provider: workday, tenant: accenture,  dc: wd103, site: AccentureCareers, domain: accenture.com }
+  - { company: Mastercard,     provider: workday, tenant: mastercard, dc: wd1,   site: CorporateCareers, domain: mastercard.com }
+  - { company: Capital One,    provider: workday, tenant: capitalone, dc: wd12,  site: Capital_One, domain: capitalone.com }
+  - { company: Morgan Stanley, provider: workday, tenant: ms,         dc: wd5,   site: External, domain: morganstanley.com }
+  - { company: Wells Fargo,    provider: workday, tenant: wf,         dc: wd1,   site: WellsFargoJobs, domain: wellsfargo.com }
+  - { company: Citi,           provider: workday, tenant: citi,       dc: wd5,   site: "2", domain: citi.com }
+  - { company: Gartner,        provider: workday, tenant: gartner,    dc: wd5,   site: EXT, domain: gartner.com }
+  - { company: Fidelity,       provider: workday, tenant: fmr,        dc: wd1,   site: FidelityCareers, domain: fidelity.com }
+  - { company: PayPal,         provider: workday, tenant: paypal,     dc: wd1,   site: jobs, domain: paypal.com }
+  - { company: Salesforce,     provider: workday, tenant: salesforce, dc: wd12,  site: External_Career_Site, domain: salesforce.com }
+  - { company: Adobe,          provider: workday, tenant: adobe,      dc: wd5,   site: external_experienced, domain: adobe.com }
+  - { company: Nvidia,         provider: workday, tenant: nvidia,     dc: wd5,   site: NVIDIAExternalCareerSite, domain: nvidia.com }
+  - { company: BlackRock,      provider: workday, tenant: blackrock,  dc: wd1,   site: BlackRock_Professional, domain: blackrock.com }
+  - { company: Disney,         provider: workday, tenant: disney,     dc: wd5,   site: disneycareer, domain: disney.com }
+  - { company: Zillow,         provider: workday, tenant: zillow,     dc: wd5,   site: Zillow_Group_External, domain: zillow.com }
+  - { company: Target,         provider: workday, tenant: target,     dc: wd5,   site: targetcareers, domain: target.com }

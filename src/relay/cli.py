@@ -96,10 +96,13 @@ def find(
     no_enrich: bool = typer.Option(False, "--no-enrich", help="Skip email enrichment (saves credits)"),
 ) -> None:
     """N2–N4: search + enrich + rank people for a target -> Contacts tab (unchecked)."""
+    from .jobs import company_domain
+
     prof = _load_profile_or_warn()
     tgt = Target(
         company=company, role=role, jd_url=jd_url,
         similar_titles=pipeline.default_similar_titles(role),
+        domain=company_domain(company),
     )
     console.print(
         f"[dim]Apollo mode: {config.apollo_mode()} · tracker: {config.tracker_backend()}[/]")

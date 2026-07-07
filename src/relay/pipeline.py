@@ -58,9 +58,12 @@ def find_people(
     profile: Profile,
     per_page: int = 25,
     enrich: bool = True,
+    enrich_top: int = 10,
 ) -> list[Contact]:
-    """N2–N4 (minus hook writing): search Apollo, enrich emails, rank by §5.
+    """N2–N4 (minus hook writing): search Apollo, rank by §5, then enrich emails.
 
+    Ranking happens BEFORE enrichment so credits are only spent on the `enrich_top`
+    strongest hooks per company (enrichment is the metered Apollo call, PRD §9).
     Hooks are intentionally left unset — writing an individual-specific hook is the
     skill's job (PRD §6). Everything here is deterministic and re-runnable.
     """
@@ -70,11 +73,13 @@ def find_people(
         titles=titles,
         schools=profile.schools,
         per_page=per_page,
+        domain=target.domain,
     )
+    ranked = prioritize(contacts, titles)
     if enrich:
-        for c in contacts:
+        for c in ranked[:enrich_top]:
             apollo.enrich(c)
-    return prioritize(contacts, titles)
+    return ranked
 
 
 def mutuals_nudge(contacts: list[Contact], top_n: int = 5) -> list[str]:

@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 
 from . import discover, gmail, outreach, pipeline, resume
+from .jobs import company_domain
 from .models import Contact, Job, Profile, Project, Target, Why
 from .sheets import get_tracker
 
@@ -63,6 +64,7 @@ def find_people_for_checked_jobs(profile: Profile) -> tuple[list[Contact], list[
         target = Target(
             company=job.company, role=job.title, jd_url=job.job_url,
             similar_titles=pipeline.default_similar_titles(job.title),
+            domain=company_domain(job.company),
         )
         tracker.upsert_target(target)
         contacts.extend(pipeline.find_people(target, profile))

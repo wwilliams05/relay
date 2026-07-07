@@ -112,21 +112,58 @@ def _client() -> httpx.Client:
     )
 
 
+def _post(client: httpx.Client, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """POST and surface Apollo's own error message (e.g. the free-plan gate on the
+    search API) as a clean RuntimeError instead of a bare HTTP status."""
+    resp = client.post(path, json=payload)
+    if resp.status_code >= 400:
+        try:
+            detail = resp.json().get("error") or resp.json().get("message")
+        except Exception:
+            detail = None
+        raise RuntimeError(
+            f"Apollo {path} failed ({resp.status_code}): {detail or resp.text[:200]}")
+    return resp.json()
+
+
+def _employer_matches(company: str | None, organization: str) -> bool:
+    """Lenient guard that a returned person actually works at the target org — the
+    keyword fallback (and even domain search, via subsidiaries) can drift."""
+    if not company:
+        return True  # Apollo sometimes omits the org; give the benefit of the doubt
+    a, b = company.lower().strip(), organization.lower().strip()
+    return a in b or b in a
+
+
 def _live_search(
-    organization: str, titles: list[str], user_schools: list[str], per_page: int
+    organization: str, titles: list[str], user_schools: list[str], per_page: int,
+    domain: str | None = None,
 ) -> list[Contact]:
-    payload = {
-        "q_organization_name": organization,
+    """People Search per the documented contract: the endpoint scopes to a company via
+    `q_organization_domains_list` (there is no q_organization_name parameter on people
+    search — passing one is silently ignored and returns people from ANY company).
+    Falls back to a keyword search when no domain is known or the domain finds no one,
+    then post-filters by employer name either way."""
+    base = {
         "person_titles": titles,
+        "include_similar_titles": True,
         "page": 1,
         "per_page": per_page,
     }
+    attempts: list[dict[str, Any]] = []
+    if domain:
+        attempts.append({**base, "q_organization_domains_list": [domain]})
+    attempts.append({**base, "q_keywords": organization})
+
+    people: list[dict[str, Any]] = []
     with _client() as client:
-        resp = client.post("/mixed_people/search", json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-    people = data.get("people") or data.get("contacts") or []
-    return [_person_to_contact(p, organization, titles, user_schools) for p in people]
+        for payload in attempts:
+            data = _post(client, "/mixed_people/search", payload)
+            people = data.get("people") or data.get("contacts") or []
+            if people:
+                break
+    contacts = [_person_to_contact(p, organization, titles, user_schools) for p in people]
+    return [c for c in contacts if _employer_matches(c.company, organization)]
 
 
 def _live_enrich(contact: Contact) -> Contact:
@@ -141,9 +178,7 @@ def _live_enrich(contact: Contact) -> Contact:
     if contact.profile_url:
         payload["linkedin_url"] = contact.profile_url
     with _client() as client:
-        resp = client.post("/people/match", json=payload)
-        resp.raise_for_status()
-        person = resp.json().get("person") or {}
+        person = _post(client, "/people/match", payload).get("person") or {}
     email = person.get("email")
     if email:
         raw_status = (person.get("email_status") or "").lower()
@@ -232,13 +267,16 @@ def search_people(
     titles: list[str],
     schools: list[str] | None = None,
     per_page: int = 25,
+    domain: str | None = None,
 ) -> list[Contact]:
     """N2: find people at `organization` matching `titles`, classifying `why` from
-    school + title overlap. Mutual-connection detection is out of scope (PRD §7)."""
+    school + title overlap. `domain` (the company's website domain) makes live search
+    precise — targets.yml carries one per company. Mutual-connection detection is out
+    of scope (PRD §7)."""
     schools = schools or []
     if config.apollo_mode() == "fixture":
         return _fixture_search(organization, titles, schools, per_page)
-    return _live_search(organization, titles, schools, per_page)
+    return _live_search(organization, titles, schools, per_page, domain=domain)
 
 
 def enrich(contact: Contact) -> Contact:
