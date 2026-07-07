@@ -7,7 +7,8 @@ gmail_client.json
 *.token.json
 .DS_Store
 
-# Generated user data (the local tracker + parsed profile)
+# Generated user data (the local tracker + parsed profile + fixture-mode drafts)
 relay.xlsx
 *.xlsx
 profile.json
+drafts/

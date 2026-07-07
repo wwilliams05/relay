@@ -17,6 +17,11 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# Only needed for RELAY_GMAIL_MODE=live (real Gmail drafts); fixture mode is dep-free.
+gmail = ["google-api-python-client>=2.130", "google-auth-oauthlib>=1.2"]
+
 [project.scripts]
 relay = "relay.cli:app"
 
@@ -26,3 +31,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/relay"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

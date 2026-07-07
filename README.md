@@ -41,7 +41,10 @@ Double-click **`Relay.pyw`** (or run `relay ui`) to open a small window:
 3. Relay scrapes job boards, fit-ranks the matches, and opens the spreadsheet. Tick
    **`pursue`** on the jobs you want.
 4. Back in the window, **② Find people for checked jobs** populates the Contacts tab.
-   Tick **`want_to_message`**. (Drafting is step ③ — M2.)
+   Tick **`want_to_message`**.
+5. **③ Draft outreach for checked contacts** writes a short, rule-checked draft per
+   checked contact — into your Gmail drafts (live) or as `.eml` files in `drafts/`
+   (no Google credentials). Uncleared referrals are skipped and flagged, never named.
 
 Everything else lives in the spreadsheet. Nothing sends on its own.
 
@@ -59,6 +62,11 @@ relay discover --notes "Fall 2026 Co-Op, PM or BizOps"   # N-1: scrape + fit-ran
 # ...tick `pursue` on jobs in the spreadsheet...
 relay find-checked                                       # N2–N4 for pursued jobs -> Contacts tab
 relay contacts                                           # show the Contacts tab
+# ...tick `want_to_message` on contacts...
+relay draft                                              # N5: rule-checked drafts (never sends)
+relay log "Elan" --messaged today --responded -m "..."   # N6: record what happened
+relay projects && relay prd                              # N7: project ideas -> PRD prompts
+relay status                                             # funnel counts + the next gate
 
 # or drive a single company directly (skip job discovery):
 relay find "SpaceX" "Business Operations Co-Op"
@@ -66,7 +74,18 @@ relay find "SpaceX" "Business Operations Co-Op"
 
 Contacts are ranked alumni + similar-role first (PRD §5) with `want_to_message`
 **unchecked**. Re-running never clobbers boxes you've checked. Modes live in `.env`
-(`RELAY_JOBS_MODE`, `RELAY_APOLLO_MODE`, `RELAY_TRACKER_BACKEND`).
+(`RELAY_JOBS_MODE`, `RELAY_APOLLO_MODE`, `RELAY_GMAIL_MODE`, `RELAY_TRACKER_BACKEND`).
+Without Gmail credentials, `relay draft` writes `.eml` files to `drafts/`; with the
+compose-only OAuth client it creates real Gmail drafts. Either way you edit and send.
+
+## Tests
+
+```bash
+pip install -e ".[dev]"
+pytest -q
+```
+
+Fully offline: every adapter runs in fixture mode against a temp workbook.
 
 ## Keep the Jobs tab fresh automatically (Windows)
 
@@ -93,19 +112,20 @@ docs/PRD.md            product spec (read this first)
 .claude/commands/      Claude Code skill-commands — the orchestration, one per stage
 targets.yml            ATS target companies for job discovery (edit to add your own)
 Relay.pyw               double-click launcher (opens the GUI)
+tests/                 offline pytest suite (fixture modes + temp workbook)
 src/relay/
   models.py            pydantic schema (mirrors the tracker tabs)
-  config.py            env loading + adapter modes (jobs, Apollo, tracker backend)
-  outreach.py          the outreach voice rules, encoded once
+  config.py            env loading + adapter modes (jobs, Apollo, Gmail, tracker)
+  outreach.py          the outreach voice rules, encoded once + draft builder/lint (N5)
   resume.py            resume PDF -> Profile (N0)
   jobs.py              job discovery: ATS APIs (targets.yml) + JobSpy + fixtures (N-1)
-  discover.py          derive search terms + fit-rank postings (N-1)
+  discover.py          derive search terms + fit-rank + cross-city dedupe (N-1)
   apollo.py            people search + email enrichment (live httpx + fixtures)
   pipeline.py          N2–N4 spine: search -> enrich -> rank (§5)
-  flow.py              orchestration shared by the launcher + CLI
+  flow.py              orchestration shared by the launcher + CLI (incl. N5–N7 + status)
   gui.py               tkinter launcher
-  gmail.py             create drafts (never sends)
-  sheets.py            tracker storage (local .xlsx default; Google Sheets swappable)
+  gmail.py             create drafts, never send (live Gmail or local .eml fixture)
+  sheets.py            tracker storage (local .xlsx default; Google Sheets drop-in)
   xlsx_checkbox.py     turns boolean cells into native Excel checkboxes
   cli.py               deterministic helpers + command surface
 ```

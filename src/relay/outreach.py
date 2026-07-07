@@ -4,6 +4,10 @@ These are HARD constraints. The draft-outreach skill (.claude/commands/draft-out
 references this spec; keeping it in code means the rules live in exactly one place.
 """
 
+from __future__ import annotations
+
+from .models import Contact, Profile, Project, Why
+
 OUTREACH_RULES = """\
 HARD RULES for every outreach draft:
 
@@ -37,3 +41,149 @@ def draft_prompt(contact_summary: str, profile_summary: str) -> str:
         "Write a short cold email. Open with the recipient-specific hook. "
         "Output only the draft body — no subject line commentary, no explanation."
     )
+
+
+def project_prd_prompt(project: Project, profile: Profile) -> str:
+    """Compose the ready-to-build PRD prompt for a checked project idea (N7).
+
+    Self-contained and weekend-scoped by design — the user pastes it into an LLM
+    as-is to start vibe-coding.
+    """
+    audience = (f"{project.for_contact} at {project.target_company}"
+                if project.for_contact else f"a contact at {project.target_company}")
+    skills = ", ".join(project.skills_shown) or "the core skills for this role"
+    return (
+        "You are helping me build a small portfolio project in one weekend. "
+        "Write a tight PRD, then an implementation plan I can follow.\n\n"
+        f"PROJECT: {project.project_idea}\n"
+        f"AUDIENCE: built to show {audience} concrete work adjacent to their team.\n"
+        f"SKILLS TO SHOWCASE: {skills}\n"
+        f"MY THROUGHLINE: {profile.anchor_framing} — the project should reinforce it.\n\n"
+        "Constraints:\n"
+        "- Scope to ONE weekend: a single clear demo, no auth, no deployment complexity.\n"
+        "- Use realistic public or synthetic data and say where it comes from.\n"
+        "- At most 3 features; cutting scope beats adding it.\n\n"
+        "Output the PRD only: goals, non-goals, data, features (max 3), a demo script "
+        "(what I walk through in a coffee chat), build steps, and one stretch goal."
+    )
+
+
+# --- deterministic drafting + rule lint (N5) ----------------------------------
+# The /draft-outreach skill writes richer drafts with the model in the loop;
+# `build_draft` is the deterministic fallback the CLI/GUI use so N5 runs offline.
+# Both paths are checked by `lint_draft`, which encodes the rules above as code.
+
+# Content that must never appear in a cold email (§6). Checked case-insensitively.
+_BANNED_SUBSTRINGS: tuple[tuple[str, str], ...] = (
+    ("no agenda", 'banned "no agenda" line'),
+    ("gpa", "mentions GPA"),
+    ("boeing", "aerospace/Boeing background is for live conversations only"),
+    ("aerospace", "aerospace/Boeing background is for live conversations only"),
+)
+
+# Referral *asks*. Referencing something the contact offered first is fine; asking
+# on first contact is not — these phrases are asks.
+_REFERRAL_ASKS: tuple[str, ...] = (
+    "refer me", "could you refer", "would you refer", "can you refer",
+    "willing to refer", "a referral", "your referral", "put in a good word",
+    "pass along my resume", "forward my resume", "pass my resume",
+    "submit my application", "flag my application",
+)
+
+# Company-enthusiasm openers — the opposite of an individual-specific hook.
+_ENTHUSIASM_OPENERS: tuple[str, ...] = (
+    "huge fan", "big fan of", "long-time fan", "always admired", "really admire",
+    "so excited about", "passionate about", "dream company", "love what",
+)
+
+MAX_DRAFT_WORDS = 120  # "short wins" — anything longer needs a human rewrite anyway
+
+
+def lint_draft(text: str, first_contact: bool = True) -> list[str]:
+    """Check a draft (subject + body) against the rules. Returns violations; [] = clean."""
+    low = text.lower()
+    violations = [why for needle, why in _BANNED_SUBSTRINGS if needle in low]
+    if first_contact:
+        violations.extend(
+            f"referral ask on first contact ({ask!r})" for ask in _REFERRAL_ASKS if ask in low
+        )
+    opener = low[:160]
+    violations.extend(
+        f"opens with company enthusiasm, not an individual hook ({phrase!r})"
+        for phrase in _ENTHUSIASM_OPENERS if phrase in opener
+    )
+    words = len(text.split())
+    if words > MAX_DRAFT_WORDS:
+        violations.append(f"too long ({words} words; keep it under {MAX_DRAFT_WORDS})")
+    return violations
+
+
+# Long school names read better shortened the way people actually say them.
+_SCHOOL_SHORT = {
+    "university of southern california": "USC",
+    "washington university in st. louis": "WashU",
+    "washington university": "WashU",
+}
+
+
+def _short_school(school: str) -> str:
+    return _SCHOOL_SHORT.get(school.strip().lower(), school.strip())
+
+
+def _first_name(full_name: str) -> str:
+    parts = full_name.strip().split()
+    return parts[0] if parts else "there"
+
+
+def _opening(contact: Contact, school: str | None) -> str:
+    """The individual-specific hook line. A skill/human-written `hook` wins; otherwise
+    build one from the structured facts we actually have (school, title, company)."""
+    if contact.hook:
+        line = contact.hook.strip()
+        return line if line[-1:] in ".!?" else line + "."
+    role = f"{contact.title} at {contact.company}" if contact.title else f"at {contact.company}"
+    if school:
+        return (f"I'm a {school} student, and I saw you went from {school} to "
+                f"{role} — that's a path I'd love to hear about.")
+    return (f"I came across your profile while reading up on how {contact.company} "
+            f"runs business operations, and your role ({contact.title or 'ops'}) is "
+            "the kind of work I'm trying to learn from.")
+
+
+def build_draft(profile: Profile, contact: Contact) -> tuple[str, str]:
+    """Deterministic, rule-abiding (subject, body) for one checked contact.
+
+    Barebones on purpose — a starting point the user edits, not a finished email.
+    Raises ValueError on an uncleared referral (never name an uncleared referrer)
+    or if the assembled draft somehow violates the rules above.
+    """
+    if contact.why == Why.REFERRAL and not contact.referral_cleared:
+        raise ValueError(
+            f"{contact.name} is an uncleared referral — clear `referral_cleared` "
+            "in the tracker before drafting (never name an uncleared referrer)."
+        )
+
+    school = _short_school(contact.school_match) if contact.school_match else None
+    first = _first_name(contact.name)
+    sender = _first_name(profile.name)
+
+    if contact.why == Why.REFERRAL:  # cleared: referencing what they offered is fine
+        opening = ("Thanks again for offering to point me toward the opening on your "
+                   "team — I wanted to follow up while it's fresh.")
+        subject = "Following up on the opening you mentioned"
+    else:
+        opening = _opening(contact, school)
+        subject = (f"{school} student with a quick question" if school
+                   else f"Quick question about your work at {contact.company}")
+
+    anchor = (f"Most of what I've done so far centers on {profile.anchor_framing}, "
+              "and I'm trying to figure out how that translates into work like yours.")
+    ask = ("Would you be open to a quick 15-minute chat in the next couple of weeks? "
+           "No pressure at all if you're slammed.")
+    body = f"Hi {first},\n\n{opening} {anchor}\n\n{ask}\n\nThanks,\n{sender}\n"
+
+    violations = lint_draft(f"{subject}\n{body}")
+    if violations:  # e.g. a human-written hook that smuggles in banned content
+        raise ValueError(f"draft for {contact.name} breaks the outreach rules: "
+                         + "; ".join(violations))
+    return subject, body

@@ -78,6 +78,37 @@ def ats_targets_path() -> Path:
     return p if p.is_absolute() else ROOT / p
 
 
+# --- Gmail (drafts only — Relay never sends) ---------------------------------
+# "live"    -> real Gmail API drafts.create (needs the OAuth client / cached token)
+# "fixture" -> write .eml draft files into the local drafts dir; no Google, no network
+# "auto"    -> live if Gmail credentials exist on disk, else fixture
+def gmail_mode() -> str:
+    mode = _env("RELAY_GMAIL_MODE", "auto").lower()
+    if mode == "auto":
+        has_creds = gmail_token_path().exists() or gmail_client_path().exists()
+        return "live" if has_creds else "fixture"
+    return mode
+
+
+def gmail_client_path() -> Path:
+    raw = _env("GMAIL_OAUTH_CLIENT", "gmail_client.json")
+    p = Path(raw)
+    return p if p.is_absolute() else ROOT / p
+
+
+def gmail_token_path() -> Path:
+    raw = _env("GMAIL_TOKEN_PATH", "gmail.token.json")
+    p = Path(raw)
+    return p if p.is_absolute() else ROOT / p
+
+
+# Where fixture-mode drafts land as .eml files (open them in any mail client).
+def drafts_dir() -> Path:
+    raw = _env("RELAY_DRAFTS_DIR", "drafts")
+    p = Path(raw)
+    return p if p.is_absolute() else ROOT / p
+
+
 # --- Tracker ----------------------------------------------------------------
 # "xlsx"   -> local openpyxl workbook (default; zero credentials)
 # "sheets" -> Google Sheets via gspread (needs SHEETS_WORKBOOK_KEY + creds)
@@ -95,6 +126,13 @@ def sheets_workbook_key() -> str | None:
     return _env("SHEETS_WORKBOOK_KEY") or None
 
 
+# Service-account json for the Sheets backend (share the sheet with its email).
+def google_credentials_path() -> Path:
+    raw = _env("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
+    p = Path(raw)
+    return p if p.is_absolute() else ROOT / p
+
+
 # Turn boolean gate cells into native Excel checkboxes (Excel 365 / 2024+). On by
 # default; set RELAY_XLSX_CHECKBOXES=0 to keep plain TRUE/FALSE if your Excel is older.
 def xlsx_checkboxes() -> bool:
@@ -104,4 +142,6 @@ def xlsx_checkboxes() -> bool:
 # --- Profile ----------------------------------------------------------------
 # Where the parsed Profile is cached so every stage can load it without re-parsing.
 def profile_path() -> Path:
-    return ROOT / "profile.json"
+    raw = _env("RELAY_PROFILE_PATH", "profile.json")
+    p = Path(raw)
+    return p if p.is_absolute() else ROOT / p
