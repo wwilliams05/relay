@@ -103,6 +103,7 @@ def find(
     )
     console.print(
         f"[dim]Apollo mode: {config.apollo_mode()} · tracker: {config.tracker_backend()}[/]")
+    _warn_if_sample_people()
 
     try:
         tracker = get_tracker()
@@ -151,6 +152,12 @@ def discover(
     except RuntimeError as err:
         _die(err)
         return
+    if not jobs:
+        console.print(
+            "[yellow]0 jobs found[/] — the job boards may have been unreachable "
+            "(offline? firewall?), or nothing matched your preferences. "
+            "Existing rows in the Jobs tab were kept; try again later.")
+        return
     _print_jobs(jobs, title="Discovered jobs (fit-ranked)")
     console.print(
         f"\n[green]{len(jobs)} jobs written[/] to the Jobs tab. "
@@ -192,10 +199,20 @@ def status() -> None:
     console.print(f"\n[bold green]Next:[/] {s.next_step}")
 
 
+def _warn_if_sample_people() -> None:
+    if config.apollo_mode() == "fixture":
+        console.print(
+            "[yellow]Apollo is in fixture mode[/] — these are SAMPLE people (demo "
+            "data), not real contacts. Add APOLLO_API_KEY to .env for real search.")
+
+
 @app.command("find-checked")
 def find_checked() -> None:
     """N2–N4 for every job you checked `pursue` on -> Contacts tab."""
     profile = _load_profile_or_warn()
+    console.print(
+        f"[dim]Apollo mode: {config.apollo_mode()} · tracker: {config.tracker_backend()}[/]")
+    _warn_if_sample_people()
     try:
         contacts, companies = flow.find_people_for_checked_jobs(profile)
     except RuntimeError as err:

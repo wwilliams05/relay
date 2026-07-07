@@ -111,3 +111,17 @@ def test_scrape_fixture_mode_is_offline_and_bounded(monkeypatch) -> None:
     out = jobs.scrape(["business operations intern"])
     assert len(out) == 3
     assert all(j.company and j.title for j in out)
+    # Demo rows are labeled so trackers can recognize (and later evict) them.
+    assert all(j.source == "fixture" for j in out)
+
+
+def test_auto_mode_never_serves_fixtures(monkeypatch) -> None:
+    """A transient network failure must return empty, not seed fake postings."""
+    monkeypatch.setenv("RELAY_JOBS_MODE", "auto")
+    monkeypatch.setattr(jobs, "_ats_scrape", lambda *a: [])
+
+    def no_network(*a):
+        raise RuntimeError("boards unreachable")
+
+    monkeypatch.setattr(jobs, "_live_scrape", no_network)
+    assert jobs.scrape(["business operations intern"]) == []

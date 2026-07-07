@@ -8,7 +8,7 @@ edit and send, and tracks the funnel through to "did they respond / what did we 
 **It prepares; you approve.** Nothing sends or submits on its own.
 
 **Job discovery is now the front door:** from your résumé + preferences it finds and
-fit-ranks internships across ~50 companies (official ATS APIs — Greenhouse/Lever/Ashby/
+fit-ranks internships across ~70 companies (official ATS APIs — Greenhouse/Lever/Ashby/
 Workday), you tick which to pursue, and the networking flow runs per company. Résumé
 tailoring is still Phase 2. See [`docs/PRD.md`](docs/PRD.md).
 
@@ -50,12 +50,14 @@ Everything else lives in the spreadsheet. Nothing sends on its own.
 
 ## Run it from the terminal (same flow)
 
-Works with **no credentials**: job discovery falls back to sample postings and people
-discovery uses SpaceX/Starlink fixtures. Add `APOLLO_API_KEY` for real people. Real
-postings need no key — the default `auto` mode pulls live internships from target
-companies' official ATS APIs (Greenhouse/Lever/Ashby/Workday, listed in `targets.yml`),
-falling back to JobSpy board scraping then fixtures only if ATS comes up empty (so it
-returns fast and never stalls on a blocked scrape). The tracker is a local `relay.xlsx`.
+Real postings need **no key** — the default `auto` mode pulls live internships from
+target companies' official ATS APIs (Greenhouse/Lever/Ashby/Workday, listed in
+`targets.yml`), falling back to JobSpy board scraping only if ATS comes up empty (so
+it returns fast and never stalls on a blocked scrape; if everything is unreachable it
+reports 0 jobs rather than inventing any). People discovery without `APOLLO_API_KEY`
+returns clearly-labeled SAMPLE people — add the key for real contacts. Canned demo
+postings exist only behind an explicit `RELAY_JOBS_MODE=fixture`, and real postings
+automatically evict any demo rows from the Jobs tab. The tracker is a local `relay.xlsx`.
 
 ```bash
 relay discover --notes "Fall 2026 Co-Op, PM or BizOps"   # N-1: scrape + fit-rank -> Jobs tab
@@ -102,7 +104,14 @@ Register-ScheduledTask -TaskName "RelayJobDiscovery" -Action $action -Trigger $t
 ```
 
 Remove it with `Unregister-ScheduledTask -TaskName RelayJobDiscovery -Confirm:$false`.
-This refreshes the 51 ATS/Workday companies with no Claude in the loop; pulling
+On a laptop, also add a logon trigger so runs missed while asleep catch up at sign-in:
+
+```powershell
+$t = Get-ScheduledTask -TaskName RelayJobDiscovery
+Set-ScheduledTask -TaskName RelayJobDiscovery -Trigger (@($t.Triggers) + (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME))
+```
+
+This refreshes the 70 ATS/Workday companies with no Claude in the loop; pulling
 Indeed/LinkedIn continuously needs the Google-Sheets + cloud-agent path (see PRD).
 
 ## Layout

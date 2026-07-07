@@ -194,6 +194,10 @@ class RelayApp:
                 self.status.set("Job discovery failed.")
                 messagebox.showerror("Relay", f"Job discovery failed:\n{err}")
                 return
+            if not jobs:
+                self.status.set("Found 0 jobs — boards unreachable or nothing matched. "
+                                "Jobs tab kept its existing rows.")
+                return
             self.status.set(
                 f"Found {len(jobs)} jobs → Jobs tab. Check ‘pursue’, then run step ②.")
             self.open_sheet()
@@ -222,9 +226,11 @@ class RelayApp:
                 self.status.set("No jobs checked — tick ‘pursue’ in the Jobs tab first.")
                 messagebox.showinfo("Relay", "Check the ‘pursue’ box on some jobs first.")
                 return
+            sample = (" — SAMPLE people (demo mode); add APOLLO_API_KEY for real contacts"
+                      if config.apollo_mode() == "fixture" else "")
             self.status.set(
                 f"Found {len(contacts)} contacts at {', '.join(sorted(set(companies)))} "
-                "→ Contacts tab. Check ‘want_to_message’.")
+                f"→ Contacts tab. Check ‘want_to_message’.{sample}")
             self.open_sheet()
 
         self._run_bg(work, done)

@@ -8,8 +8,10 @@ Two independent sources, selected by `RELAY_JOBS_MODE` (see config.jobs_mode):
              coverage across every company, but network-bound and often rate-limited.
 
 Modes: "ats" (ATS only), "live" (JobSpy only), "fixture" (canned, fully offline),
-"auto" (ATS, falling back to JobSpy then fixtures only if ATS is empty — so the
-launcher never stalls on a blocked scrape).
+"auto" (ATS, falling back to JobSpy only if ATS is empty — so the launcher never
+stalls on a blocked scrape). Fixtures are DEMO data: they're only served in explicit
+fixture mode, never as an auto fallback — a transient network failure must return
+empty rather than seed fake postings into a real tracker.
 
 Every posting funnels through `_normalize` so ATS, JobSpy, and fixture rows map to a
 Job the same way. Fit-scoring against the Profile happens in `relay.discover`.
@@ -272,7 +274,7 @@ def _workday_rows(t: dict[str, str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     for term in ("intern", "summer analyst"):
-        for offset in (0, 20):
+        for offset in (0, 20, 40, 60):
             try:
                 data = _ats_post(url, {"appliedFacets": {}, "limit": 20, "offset": offset,
                                        "searchText": term})
@@ -342,7 +344,7 @@ def _ats_scrape(terms: list[str], location: str, results_wanted: int) -> list[Jo
 _FIXTURE_JOBS: list[dict[str, Any]] = [
     {
         "company": "SpaceX", "title": "Business Operations Co-Op (Starlink), Fall 2026",
-        "location": "Redmond, WA", "job_type": "internship", "site": "linkedin",
+        "location": "Redmond, WA", "job_type": "internship", "site": "fixture",
         "job_url": "https://example.com/jobs/spacex-bizops-coop",
         "date_posted": "2026-06-01",
         "description": "Drive business operations and process improvement for Starlink. "
@@ -350,7 +352,7 @@ _FIXTURE_JOBS: list[dict[str, Any]] = [
     },
     {
         "company": "Stripe", "title": "Product Management Intern, Fall 2026",
-        "location": "San Francisco, CA", "job_type": "internship", "site": "indeed",
+        "location": "San Francisco, CA", "job_type": "internship", "site": "fixture",
         "job_url": "https://example.com/jobs/stripe-pm-intern",
         "date_posted": "2026-06-05",
         "description": "Product management internship. Work with engineering on product "
@@ -358,7 +360,7 @@ _FIXTURE_JOBS: list[dict[str, Any]] = [
     },
     {
         "company": "Ramp", "title": "Business Operations & Strategy Intern",
-        "location": "New York, NY", "job_type": "internship", "site": "linkedin",
+        "location": "New York, NY", "job_type": "internship", "site": "fixture",
         "job_url": "https://example.com/jobs/ramp-bizops-intern",
         "date_posted": "2026-05-28",
         "description": "BizOps and strategy internship. Process improvement, operations "
@@ -366,14 +368,14 @@ _FIXTURE_JOBS: list[dict[str, Any]] = [
     },
     {
         "company": "Notion", "title": "Associate Product Manager Intern",
-        "location": "San Francisco, CA", "job_type": "internship", "site": "google",
+        "location": "San Francisco, CA", "job_type": "internship", "site": "fixture",
         "job_url": "https://example.com/jobs/notion-apm-intern",
         "date_posted": "2026-06-10",
         "description": "APM internship building product features and growth experiments.",
     },
     {
         "company": "Anduril", "title": "Supply Chain Operations Co-Op, Fall 2026",
-        "location": "Costa Mesa, CA", "job_type": "internship", "site": "indeed",
+        "location": "Costa Mesa, CA", "job_type": "internship", "site": "fixture",
         "job_url": "https://example.com/jobs/anduril-supplychain-coop",
         "date_posted": "2026-06-03",
         "description": "Supply chain and business operations co-op. Process improvement, "
@@ -381,7 +383,7 @@ _FIXTURE_JOBS: list[dict[str, Any]] = [
     },
     {
         "company": "DoorDash", "title": "Strategy & Operations Intern",
-        "location": "Remote", "job_type": "internship", "site": "linkedin",
+        "location": "Remote", "job_type": "internship", "site": "fixture",
         "job_url": "https://example.com/jobs/doordash-stratops-intern",
         "date_posted": "2026-05-20",
         "description": "Strategy and operations internship. Analytics, experimentation, "
@@ -389,7 +391,7 @@ _FIXTURE_JOBS: list[dict[str, Any]] = [
     },
     {
         "company": "Acme Corp", "title": "Marketing Coordinator (Full-time)",
-        "location": "Austin, TX", "job_type": "fulltime", "site": "indeed",
+        "location": "Austin, TX", "job_type": "fulltime", "site": "fixture",
         "job_url": "https://example.com/jobs/acme-marketing",
         "date_posted": "2026-04-15",
         "description": "Full-time marketing coordinator. Social media and events. "
@@ -410,9 +412,10 @@ def scrape(
 ) -> list[Job]:
     """N-1: gather postings for `terms`. Returns raw (unranked, un-deduped) Jobs.
 
-    Honors RELAY_JOBS_MODE; in "auto" it merges the reliable ATS APIs with JobSpy's
-    breadth and falls back to fixtures so the launcher never dead-ends on a blocked
-    scrape. Dedup + fit-ranking happen in `relay.discover`.
+    Honors RELAY_JOBS_MODE; in "auto" the reliable ATS APIs are primary with JobSpy
+    as the fallback. An empty result means the boards were unreachable (or nothing
+    matched) — never silently swapped for fixture data, which is demo-only and must
+    not leak into a real tracker. Dedup + fit-ranking happen in `relay.discover`.
     """
     terms = [t for t in terms if t.strip()] or ["business operations internship"]
     location = location or config.jobs_location()
@@ -425,13 +428,12 @@ def scrape(
         return _ats_scrape(terms, location, results_wanted)
     if mode == "live":
         return _live_scrape(terms, location, results_wanted)
-    # auto: ATS is the reliable primary. Only fall through to JobSpy's board scraping if
-    # ATS came up empty — a blocked/slow scrape must never stall the launcher — and to
-    # fixtures only if that fails too. So `auto` returns quickly whenever ATS has results.
+    # auto: ATS is the reliable primary. Only fall through to JobSpy's board scraping
+    # if ATS came up empty — a blocked/slow scrape must never stall the launcher.
     jobs = _ats_scrape(terms, location, results_wanted)
     if not jobs:
         try:
             jobs = _live_scrape(terms, location, results_wanted)
         except Exception:
             jobs = []
-    return jobs or _fixture_scrape(terms, location, results_wanted)
+    return jobs

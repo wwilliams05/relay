@@ -11,9 +11,11 @@ respond / what did we discuss." Full spec: `docs/PRD.md` (read §3, §5, §6 bef
 working on any stage).
 
 **Job discovery (N-1) has been pulled forward** and is now Relay's entry point: from a
-résumé + typed preferences it finds ranked internships across ~50 target companies
+résumé + typed preferences it finds ranked internships across ~70 target companies
 (via official ATS APIs), the user checks which to pursue, and the existing networking
 flow runs per pursued company. Resume tailoring is still Phase 2 and NOT in scope.
+Fixture/sample data is demo-only: `auto` job discovery never falls back to fixtures,
+and real postings evict any lingering sample rows from the Jobs tab.
 
 ## Golden rules (do not violate)
 
@@ -72,7 +74,7 @@ flow runs per pursued company. Resume tailoring is still Phase 2 and NOT in scop
 - **M1 (done):** `apollo.search_people` + `apollo.enrich` + `sheets.py`; `relay find`
   returns a ranked, enriched contact list to the Contacts tab (fixtures without a key).
 - **N-1 job discovery (done):** `jobs.py` + `discover.py` + `flow.py` + `gui.py`.
-  ~50 companies in `targets.yml` across Greenhouse/Lever/Ashby/Workday, parallel fetch,
+  ~70 companies in `targets.yml` across Greenhouse/Lever/Ashby/Workday, parallel fetch,
   fit-scoring weighted by typed preferences + major + recency + preferred locations,
   duplicate collapse (incl. cross-city), clickable URLs, twice-daily Windows refresh.
 - **M2 — drafts → Gmail (N5) (done):** `flow.draft_outreach` gated on `want_to_message`;

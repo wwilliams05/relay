@@ -302,19 +302,37 @@ def merge_project_rows(existing: list[dict[str, Any]],
     return list(merged.values())
 
 
+def _is_sample_job_row(row: dict[str, Any]) -> bool:
+    """Demo/fixture data that must never persist alongside real postings: rows the
+    fixture adapter wrote (source=fixture) or anything pointing at example.com (the
+    fixture URLs — also catches rows written before fixtures were labeled)."""
+    if _cell_str(row.get("source")).lower() == "fixture":
+        return True
+    return "example.com" in _cell_str(row.get("job_url")).lower()
+
+
 def merge_job_rows(existing: list[dict[str, Any]], jobs: list[Job],
                    floor: int) -> list[dict[str, Any]]:
     """Upsert by job_key, keep the human `pursue`/status, prune sub-floor rows that
     aren't pursued, and order highest fit first."""
     by_key = {job_key(r): r for r in existing}
     merged: dict[str, dict[str, Any]] = dict(by_key)
+    incoming_real = False
     for j in jobs:
         k = job_key(j)
         row = job_to_row(j)
+        if not _is_sample_job_row(row):
+            incoming_real = True
         if k in by_key:
             row["pursue"] = by_key[k].get("pursue", row["pursue"])
             row["status"] = by_key[k].get("status", row["status"])
         merged[k] = row
+
+    # Real postings evict demo rows — even pursued ones; a ticked fake posting is
+    # still fake. An all-sample batch (explicit fixture demo mode) keeps them so the
+    # offline demo flow works.
+    if incoming_real:
+        merged = {k: r for k, r in merged.items() if not _is_sample_job_row(r)}
 
     def _fit(row: dict[str, Any]) -> int:
         try:

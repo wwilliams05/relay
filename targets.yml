@@ -46,6 +46,14 @@ targets:
   - { company: Pinterest,  provider: greenhouse, token: pinterest }
   - { company: Reddit,     provider: greenhouse, token: reddit }
   - { company: Gopuff,     provider: lever,      token: gopuff }
+  - { company: Lyft,       provider: greenhouse, token: lyft }
+  - { company: Discord,    provider: greenhouse, token: discord }
+  - { company: Duolingo,   provider: greenhouse, token: duolingo }
+  - { company: Roblox,     provider: greenhouse, token: roblox }
+  - { company: Squarespace, provider: greenhouse, token: squarespace }
+  - { company: Peloton,    provider: greenhouse, token: peloton }
+  - { company: Epic Games, provider: greenhouse, token: epicgames }
+  - { company: Spotify,    provider: lever,      token: spotify }
 
   # --- Enterprise SaaS & data ---
   - { company: Databricks, provider: greenhouse, token: databricks }
@@ -59,18 +67,24 @@ targets:
   - { company: Flexport,   provider: greenhouse, token: flexport }
   - { company: Gusto,      provider: greenhouse, token: gusto }
   - { company: Checkr,     provider: greenhouse, token: checkr }
+  - { company: Datadog,    provider: greenhouse, token: datadog }
+  - { company: Verkada,    provider: greenhouse, token: verkada }
   - { company: Notion,     provider: ashby,      token: notion }
   - { company: Zip,        provider: ashby,      token: zip }
   - { company: Deel,       provider: ashby,      token: deel }
   - { company: Vanta,      provider: ashby,      token: vanta }
+  - { company: Linear,     provider: ashby,      token: Linear }
 
   # --- Defense, space & deep tech ---
   - { company: SpaceX,     provider: greenhouse, token: spacex }
   - { company: Anduril,    provider: greenhouse, token: andurilindustries }
   - { company: Palantir,   provider: lever,      token: palantir }
+  - { company: Waymo,      provider: greenhouse, token: waymo }
 
   # --- AI ---
   - { company: OpenAI,     provider: ashby,      token: openai }
+  - { company: Anthropic,  provider: greenhouse, token: anthropic }
+  - { company: Perplexity, provider: ashby,      token: perplexity }
 
   # --- Workday companies (banking / consulting / payments / enterprise) ---
   # These use Workday's public cxs JSON API. Fields differ: tenant + dc (datacenter,
@@ -89,3 +103,8 @@ targets:
   - { company: PayPal,         provider: workday, tenant: paypal,     dc: wd1,   site: jobs }
   - { company: Salesforce,     provider: workday, tenant: salesforce, dc: wd12,  site: External_Career_Site }
   - { company: Adobe,          provider: workday, tenant: adobe,      dc: wd5,   site: external_experienced }
+  - { company: Nvidia,         provider: workday, tenant: nvidia,     dc: wd5,   site: NVIDIAExternalCareerSite }
+  - { company: BlackRock,      provider: workday, tenant: blackrock,  dc: wd1,   site: BlackRock_Professional }
+  - { company: Disney,         provider: workday, tenant: disney,     dc: wd5,   site: disneycareer }
+  - { company: Zillow,         provider: workday, tenant: zillow,     dc: wd5,   site: Zillow_Group_External }
+  - { company: Target,         provider: workday, tenant: target,     dc: wd5,   site: targetcareers }

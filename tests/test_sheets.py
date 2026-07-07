@@ -120,6 +120,30 @@ def test_jobs_round_trip_fields(tracker: LocalXlsxTracker) -> None:
     assert read == original
 
 
+def test_write_jobs_real_postings_evict_sample_rows(tracker: LocalXlsxTracker) -> None:
+    """Fixture/demo rows (even old unlabeled ones with example.com URLs, even pursued)
+    are purged the moment a real posting arrives — fake jobs must not linger."""
+    tracker.write_jobs([
+        _job(job_url="https://example.com/jobs/spacex-bizops-coop", source="linkedin",
+             fit_score=90, pursue=True),  # the pre-label leak shape
+        _job(company="Ramp", title="BizOps Intern", job_url="https://f.example/x",
+             source="fixture", fit_score=80),
+    ])
+    assert len(tracker.read_jobs()) == 2  # all-sample batch: demo mode keeps them
+
+    tracker.write_jobs([_job(job_url="https://boards.real/pm", source="greenhouse",
+                             fit_score=60)])
+    (kept,) = tracker.read_jobs()
+    assert kept.job_url == "https://boards.real/pm"
+
+
+def test_fixture_demo_rows_survive_fixture_reruns(tracker: LocalXlsxTracker) -> None:
+    sample = _job(job_url="https://example.com/jobs/demo", source="fixture", fit_score=70)
+    tracker.write_jobs([sample])
+    tracker.write_jobs([sample])  # re-running the offline demo doesn't self-destruct
+    assert len(tracker.read_jobs()) == 1
+
+
 # --- checkbox injection ----------------------------------------------------------------
 def test_checkbox_injection_round_trip(monkeypatch, tracker: LocalXlsxTracker) -> None:
     monkeypatch.setenv("RELAY_XLSX_CHECKBOXES", "1")
