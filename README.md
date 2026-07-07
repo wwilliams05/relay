@@ -75,8 +75,14 @@ relay find "SpaceX" "Business Operations Co-Op"
 ```
 
 Contacts are ranked alumni + similar-role first (PRD §5) with `want_to_message`
-**unchecked**. Re-running never clobbers boxes you've checked. Modes live in `.env`
-(`RELAY_JOBS_MODE`, `RELAY_APOLLO_MODE`, `RELAY_GMAIL_MODE`, `RELAY_TRACKER_BACKEND`).
+**unchecked**; email enrichment spends Apollo credits on only the top-ranked few per
+company. Postings clearly outside the US are dropped by default
+(`RELAY_JOBS_US_ONLY=0` to go international). Re-running never clobbers boxes you've
+checked. Modes live in `.env` (`RELAY_JOBS_MODE`, `RELAY_APOLLO_MODE`,
+`RELAY_GMAIL_MODE`, `RELAY_TRACKER_BACKEND`).
+
+> **Apollo plan note:** Apollo gates its search + enrichment APIs behind paid plans —
+> on a free key, `relay find-checked` reports the plan error and writes nothing.
 Without Gmail credentials, `relay draft` writes `.eml` files to `drafts/`; with the
 compose-only OAuth client it creates real Gmail drafts. Either way you edit and send.
 

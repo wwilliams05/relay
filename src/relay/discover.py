@@ -8,6 +8,7 @@ the /suggest-* skills can refine later, but the launcher never needs an LLM to r
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from . import config, jobs
@@ -100,6 +101,65 @@ _LOCATION_ALIASES: dict[str, tuple[str, ...]] = {
     "remote": ("remote", "work from home", "wfh", "anywhere"),
     "hybrid": ("hybrid",),
 }
+
+
+# --- US-only gate ---------------------------------------------------------------
+# Postings label countries inconsistently ("Warsaw, Poland", "Sydney New South Wales
+# Australia", "MX, DIF, Mexico City", "Hybrid - London"), so classification is
+# marker-based and three-valued: True (US), False (clearly elsewhere), None (unknown
+# — kept, so missing data is never punished).
+
+_US_WORD_HINTS = ("united states", "usa", "u.s.")
+# 50 states + DC + the bare "US" token, matched case-sensitively as whole words so
+# "Austin, TX" hits but "Colombia"/"India" can't fake a state code.
+_US_STATE_TOKENS = (
+    "US", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+    "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO",
+    "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA",
+    "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
+)
+_US_STATE_RE = re.compile(r"\b(" + "|".join(_US_STATE_TOKENS) + r")\b")
+
+# Countries, regions, and unambiguous foreign hub cities (word-bounded, lowercase).
+_NON_US_MARKERS = (
+    "united kingdom", "england", "scotland", "ireland", "france", "germany", "spain",
+    "portugal", "italy", "netherlands", "belgium", "luxembourg", "poland", "romania",
+    "hungary", "czech", "slovakia", "austria", "switzerland", "sweden", "denmark",
+    "norway", "finland", "estonia", "latvia", "lithuania", "greece", "ukraine",
+    "canada", "mexico", "brazil", "argentina", "chile", "colombia", "peru", "costa rica",
+    "india", "china", "japan", "korea", "taiwan", "singapore", "malaysia", "indonesia",
+    "philippines", "thailand", "vietnam", "australia", "new zealand", "israel",
+    "turkey", "saudi", "qatar", "egypt", "south africa", "nigeria", "kenya",
+    "emea", "apac", "latam", "europe",
+    "london", "dublin", "paris", "munich", "berlin", "frankfurt", "madrid",
+    "barcelona", "amsterdam", "warsaw", "krakow", "gdansk", "zurich", "geneva",
+    "stockholm", "copenhagen", "oslo", "helsinki", "milan", "vienna", "prague",
+    "budapest", "bucharest", "lisbon", "brussels", "tokyo", "osaka", "seoul",
+    "sydney", "melbourne", "brisbane", "auckland", "toronto", "vancouver",
+    "montreal", "ottawa", "calgary", "bogota", "sao paulo", "buenos aires",
+    "santiago", "lima", "bangalore", "bengaluru", "hyderabad", "mumbai", "chennai",
+    "pune", "gurgaon", "gurugram", "noida", "shanghai", "beijing", "shenzhen",
+    "hong kong", "taipei", "tel aviv", "dubai", "abu dhabi", "istanbul",
+)
+_NON_US_RE = re.compile(r"\b(" + "|".join(m.replace(" ", r"\s+") for m in _NON_US_MARKERS) + r")\b")
+
+
+def _is_us_location(location: str | None) -> bool | None:
+    """True = US, False = clearly another country, None = can't tell (keep).
+    Mixed signals (e.g. a cross-posted "New York / London") stay None — when in
+    doubt, keep the row and let preferred-location scoring sort it."""
+    if not location or not location.strip():
+        return None
+    low = location.lower()
+    if any(h in low for h in _US_WORD_HINTS):
+        return True
+    has_state = _US_STATE_RE.search(location) is not None
+    non_us = _NON_US_RE.search(low) is not None
+    if non_us and not has_state:
+        return False
+    if has_state and not non_us:
+        return True
+    return None
 
 
 def _location_variants(pref: str) -> tuple[str, ...]:
@@ -252,11 +312,14 @@ def run_discovery(profile: Profile) -> list[Job]:
         seen.setdefault(job_key(job), job)  # first wins; scrape order is source order
 
     floor = config.jobs_min_fit()
+    us_only = config.jobs_us_only()
     wants_intern = _wants_internship(profile)
     ranked: list[Job] = []
     for job in seen.values():
         if wants_intern and not _is_internship(job):
             continue  # v1 is internship-only; drop full-time roles (JobSpy/fixtures)
+        if us_only and _is_us_location(job.location) is False:
+            continue  # clearly another country; unknown locations are kept
         job.fit_score, job.fit_reason = score_job(job, profile)
         if job.fit_score >= floor:  # drop engineering/off-field noise from big boards
             ranked.append(job)

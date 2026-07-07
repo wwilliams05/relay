@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
+
 from relay import discover
-from relay.discover import _location_fit, derive_search_terms, run_discovery, score_job
+from relay.discover import (_is_us_location, _location_fit, derive_search_terms,
+                            run_discovery, score_job)
 from relay.models import Job, Profile
 
 
@@ -121,6 +124,46 @@ def test_location_fit_aliases() -> None:
     assert _location_fit(_job(location="Multiple Locations"), prefs) == (0, None)
     assert _location_fit(_job(location=None), prefs) == (0, None)
     assert _location_fit(_job(location="Austin, TX"), []) == (0, None)
+
+
+# --- US-only gate ------------------------------------------------------------------
+@pytest.mark.parametrize("loc,expected", [
+    ("Austin, TX", True),
+    ("CHARLOTTE, NC", True),
+    ("US, CA, Santa Clara", True),
+    ("New York New York United States", True),
+    ("Seattle, Washington, USA", True),
+    ("Warsaw, Poland", False),
+    ("Sydney New South Wales Australia", False),
+    ("London, United Kingdom", False),
+    ("Hybrid - London", False),
+    ("Mexico City, Mexico City, MEX", False),
+    ("Bogota  Colombia", False),
+    ("Bengaluru, India", False),
+    ("Remote - EMEA", False),
+    ("New York, NY / London", None),  # mixed signals -> keep
+    ("3 Locations", None),
+    ("Remote", None),
+    ("", None),
+    (None, None),
+])
+def test_is_us_location(loc, expected) -> None:
+    assert _is_us_location(loc) is expected
+
+
+def test_run_discovery_drops_non_us_by_default(profile: Profile, monkeypatch) -> None:
+    scraped = [
+        Job(company="Stripe", title="Business Operations Intern", location="Warsaw, Poland",
+            job_url="https://x/warsaw", job_type="internship"),
+        Job(company="Ramp", title="Business Operations Intern", location="Austin, TX",
+            job_url="https://x/austin", job_type="internship"),
+    ]
+    monkeypatch.setattr(discover.jobs, "scrape", lambda terms: scraped)
+    (kept,) = run_discovery(profile)
+    assert kept.job_url == "https://x/austin"
+
+    monkeypatch.setenv("RELAY_JOBS_US_ONLY", "0")  # international search opt-out
+    assert len(run_discovery(profile)) == 2
 
 
 # --- end-to-end fixture discovery ------------------------------------------------

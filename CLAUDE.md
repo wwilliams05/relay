@@ -74,9 +74,12 @@ and real postings evict any lingering sample rows from the Jobs tab.
 - **M1 (done):** `apollo.search_people` + `apollo.enrich` + `sheets.py`; `relay find`
   returns a ranked, enriched contact list to the Contacts tab (fixtures without a key).
 - **N-1 job discovery (done):** `jobs.py` + `discover.py` + `flow.py` + `gui.py`.
-  ~70 companies in `targets.yml` across Greenhouse/Lever/Ashby/Workday, parallel fetch,
-  fit-scoring weighted by typed preferences + major + recency + preferred locations,
-  duplicate collapse (incl. cross-city), clickable URLs, twice-daily Windows refresh.
+  ~70 companies in `targets.yml` across Greenhouse/Lever/Ashby/Workday + Amazon's own
+  careers JSON, parallel fetch, fit-scoring weighted by typed preferences + major +
+  recency + preferred locations, US-only gate (RELAY_JOBS_US_ONLY), duplicate collapse
+  (incl. cross-city), clickable URLs, twice-daily + at-logon Windows refresh.
+  (Google/Meta/Apple/Microsoft aren't reachable: proprietary career sites, no stable
+  public JSON; Google retired its v3 API.)
 - **M2 — drafts → Gmail (N5) (done):** `flow.draft_outreach` gated on `want_to_message`;
   skips + flags uncleared referrals; drafts built by `outreach.build_draft` and checked
   by `outreach.lint_draft`; surfaced as `relay draft` + GUI step ③. Fixture mode writes
@@ -87,7 +90,10 @@ and real postings evict any lingering sample rows from the Jobs tab.
 - **Sheets backend (done):** `SheetsTracker` via gspread service account, same merge
   semantics as xlsx through the shared `merge_*` functions. Needs real-creds dogfooding.
 - **Next:**
-  - **Real people search:** `apollo.py` live mode needs `APOLLO_API_KEY` (fixtures today).
+  - **Real people search:** live client is contract-correct (domain-scoped search,
+    keyword fallback, employer post-filter, enrichment capped to top-ranked), but
+    Apollo gates search AND enrichment APIs behind paid plans — the user's current
+    key is free-plan, so N2/N3 live is blocked on an Apollo upgrade.
   - **Live-creds dogfood:** exercise Gmail OAuth (N5) and the Sheets backend against
     real credentials; fix whatever reality disagrees with.
   - **Hooks at scale:** `/find-people` should write individual `hook`s; `build_draft`

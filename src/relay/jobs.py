@@ -54,6 +54,11 @@ def _to_date(value: Any) -> date | None:
     try:
         return date.fromisoformat(str(value)[:10])
     except ValueError:
+        pass
+    # Amazon's careers stack writes "September 24, 2025".
+    try:
+        return datetime.strptime(str(value).strip(), "%B %d, %Y").date()
+    except ValueError:
         return None
 
 
@@ -298,12 +303,47 @@ def _workday_rows(t: dict[str, str]) -> list[dict[str, Any]]:
     return rows
 
 
+def _amazon_rows(t: dict[str, str]) -> list[dict[str, Any]]:
+    """Amazon runs its own careers stack; /en/search.json is its public JSON search.
+    We pull the intern search and let the title regex re-filter downstream. Locations
+    come back as 'City, State, USA' / '..., MEX' — the US-only filter can read them."""
+    rows: list[dict[str, Any]] = []
+    for offset in (0, 100):
+        data = _ats_get("https://www.amazon.jobs/en/search.json"
+                        f"?base_query=intern&result_limit=100&offset={offset}")
+        postings = data.get("jobs") or []
+        for j in postings:
+            path = j.get("job_path") or ""
+            rows.append({
+                "company": t["company"], "title": j.get("title"),
+                "location": j.get("normalized_location") or j.get("location"),
+                "site": "amazon",
+                "job_url": f"https://www.amazon.jobs{path}" if path else None,
+                "date_posted": j.get("posted_date"),
+                "description": _strip_html(j.get("description")),
+            })
+        if len(postings) < 100:
+            break
+    return rows
+
+
 _ATS_PROVIDERS = {
     "greenhouse": _greenhouse_rows,
     "lever": _lever_rows,
     "ashby": _ashby_rows,
     "workday": _workday_rows,
+    "amazon": _amazon_rows,
 }
+
+
+def company_domain(company: str) -> str | None:
+    """The company's website domain from targets.yml (`domain:` per entry) — used to
+    scope Apollo people search to the right org. None for unconfigured companies."""
+    low = company.strip().lower()
+    for t in _load_ats_targets():
+        if t.get("company", "").strip().lower() == low:
+            return t.get("domain") or None
+    return None
 
 
 def _fetch_target(target: dict[str, str]) -> list[dict[str, Any]]:

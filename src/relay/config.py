@@ -63,6 +63,13 @@ def jobs_min_fit() -> int:
     return int(raw) if raw.lstrip("-").isdigit() else 20
 
 
+# Keep only US postings: drop jobs whose location clearly reads as another country
+# (Warsaw, Sydney, London hybrid, ...). Unknown/blank locations are kept. On by
+# default; set RELAY_JOBS_US_ONLY=0 to search internationally.
+def jobs_us_only() -> bool:
+    return _env("RELAY_JOBS_US_ONLY", "1").lower() not in {"0", "false", "no"}
+
+
 # --- ATS APIs (Greenhouse / Lever / Ashby) ----------------------------------
 # Official ATS job-board JSON endpoints for a curated list of target companies.
 # Unlike JobSpy (board scraping, rate-limited/blockable), these are free, no-auth,

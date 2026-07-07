@@ -52,6 +52,10 @@ def test_to_date_lever_epoch_millis() -> None:
     assert _to_date(str(ms)) == expected
 
 
+def test_to_date_amazon_month_name_format() -> None:
+    assert _to_date("September 24, 2025") == date(2025, 9, 24)
+
+
 @pytest.mark.parametrize("bad", [None, "", "garbage", "junk-date"])
 def test_to_date_garbage_is_none(bad) -> None:
     assert _to_date(bad) is None
@@ -103,6 +107,31 @@ def test_strip_html() -> None:
     assert _strip_html("<p>Hello&nbsp;<b>world</b></p>") == "Hello world"
     assert _strip_html("") is None
     assert _strip_html(None) is None
+
+
+def test_amazon_rows_normalize(monkeypatch) -> None:
+    record = {
+        "title": "Business Analyst Intern",
+        "normalized_location": "Seattle, Washington, USA",
+        "job_path": "/en/jobs/3091886/business-analyst-intern",
+        "posted_date": "September 24, 2025",
+        "description": "<p>Ops internship</p>",
+    }
+    monkeypatch.setattr(jobs, "_ats_get", lambda url: {"jobs": [record]})
+    (row,) = jobs._amazon_rows({"company": "Amazon", "provider": "amazon"})
+    assert row["job_url"] == "https://www.amazon.jobs/en/jobs/3091886/business-analyst-intern"
+    assert row["location"] == "Seattle, Washington, USA"
+    assert row["site"] == "amazon"
+    job = jobs._normalize(row)
+    assert job.date_posted == date(2025, 9, 24)
+    assert job.description == "Ops internship"
+
+
+def test_company_domain_reads_targets_yml() -> None:
+    assert jobs.company_domain("SpaceX") == "spacex.com"
+    assert jobs.company_domain("spacex") == "spacex.com"  # case-insensitive
+    assert jobs.company_domain("Scale AI") == "scale.com"
+    assert jobs.company_domain("Unknown Startup") is None
 
 
 # --- fixture scrape ------------------------------------------------------------------
