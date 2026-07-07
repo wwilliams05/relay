@@ -120,6 +120,19 @@ def test_jobs_round_trip_fields(tracker: LocalXlsxTracker) -> None:
     assert read == original
 
 
+def test_write_contacts_real_people_evict_sample_people(tracker: LocalXlsxTracker) -> None:
+    sample = _contact(profile_url="https://www.linkedin.com/in/elan-reyes-example")
+    tracker.write_contacts([sample])
+    tracker.write_contacts([sample])  # fixture demo re-runs keep the sample person
+    assert len(tracker.read_contacts()) == 1
+
+    real = _contact(name="Priya Real", email="priya.real@spacex.com",
+                    profile_url="https://www.linkedin.com/in/priya-real")
+    tracker.write_contacts([real])
+    (kept,) = tracker.read_contacts()
+    assert kept.name == "Priya Real"
+
+
 def test_write_jobs_real_postings_evict_sample_rows(tracker: LocalXlsxTracker) -> None:
     """Fixture/demo rows (even old unlabeled ones with example.com URLs, even pursued)
     are purged the moment a real posting arrives — fake jobs must not linger."""

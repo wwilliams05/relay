@@ -261,18 +261,31 @@ def merge_target_rows(existing: list[dict[str, Any]], target: Target) -> list[di
     return rows
 
 
+def _is_sample_contact_row(row: dict[str, Any]) -> bool:
+    """Apollo's fixture people all carry a linkedin URL ending in '-example' — that
+    suffix is the sample marker (apollo.py keeps it on every fixture person)."""
+    return _cell_str(row.get("profile_url")).lower().endswith("-example")
+
+
 def merge_contact_rows(existing: list[dict[str, Any]],
                        contacts: list[Contact]) -> list[dict[str, Any]]:
     """Upsert by contact_key, preserving human-owned columns on existing rows."""
     by_key = {contact_key(r): r for r in existing}
     merged: dict[str, dict[str, Any]] = dict(by_key)
+    incoming_real = False
     for c in contacts:
         k = contact_key(c)
         row = contact_to_row(c)
+        if not _is_sample_contact_row(row):
+            incoming_real = True
         if k in by_key:
             for col in CONTACT_HUMAN_COLUMNS:
                 row[col] = by_key[k].get(col, row[col])
         merged[k] = row
+    # Real people evict the demo people (same rule as jobs: fake rows must not
+    # linger in a real funnel once live data flows).
+    if incoming_real:
+        merged = {k: r for k, r in merged.items() if not _is_sample_contact_row(r)}
     return list(merged.values())
 
 

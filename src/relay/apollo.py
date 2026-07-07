@@ -155,6 +155,8 @@ def _live_enrich(contact: Contact) -> Contact:
 # --- fixtures ----------------------------------------------------------------
 # Canned SpaceX / Starlink Business Operations people for the v1 dogfood target.
 # Mix of USC/WashU alumni and similar-role-only contacts so ranking (N4) has signal.
+# INVARIANT: every fixture person's linkedin_url ends in "-example" — that suffix is
+# how the tracker recognizes (and, once real people arrive, evicts) sample rows.
 _FIXTURE_PEOPLE: list[dict[str, Any]] = [
     {
         "first_name": "Elan", "last_name": "Reyes", "name": "Elan Reyes",
